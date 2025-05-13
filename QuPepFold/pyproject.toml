@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qupepfold"
+version = "0.1.0"
+description = "QuPepFold: Quantum peptide folding simulations with Qiskit"
+readme = "README.md"
+requires-python = ">=3.7"
+dependencies = [
+  "qiskit>=0.39",
+  "qiskit-aer",
+  "numpy",
+  "matplotlib",
+  "scipy",
+]
+authors = [
+  { name="Your Name", email="you@example.com" },
+]
+license = { text="MIT" }
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Quantum Computing",
+]
