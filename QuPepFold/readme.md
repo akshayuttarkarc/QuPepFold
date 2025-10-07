@@ -5,14 +5,10 @@ Quantum peptide‐folding simulations built on Qiskit.
 ## Installation
 
 ```bash
-pip install qupepfold
+pip3 install qupepfold
 
- OR
 
- git clone https://github.com/yourusername/qupepfold.git
-cd qupepfold
-pip install
-
+### You can use in our custom code as
 
 from qupepfold import generate_turn2qubit, protein_vqe_objective
 

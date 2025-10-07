@@ -1,0 +1,5 @@
+qiskit>=0.39
+qiskit-aer
+numpy
+matplotlib
+scipy

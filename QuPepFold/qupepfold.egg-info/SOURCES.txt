@@ -1,0 +1,14 @@
+MANIFEST.in
+README.md
+pyproject.toml
+setup.cfg
+setup.py
+qupepfold/__init__.py
+qupepfold/cli.py
+qupepfold/qupepfold.py
+qupepfold.egg-info/PKG-INFO
+qupepfold.egg-info/SOURCES.txt
+qupepfold.egg-info/dependency_links.txt
+qupepfold.egg-info/requires.txt
+qupepfold.egg-info/top_level.txt
+scripts/qupepfold
