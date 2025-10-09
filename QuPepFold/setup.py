@@ -24,11 +24,17 @@ Given a protein sequence (2–10 amino acids), it:
   • Defines an ansatz circuit with parameterized single-qubit rotations and entangling CX gates  
   • Uses a CVaR-based Variational Quantum Eigensolver (VQE) with SciPy’s COBYLA optimizer  
     – Supports configurable shot count (default 1024) and iteration limit (default 50)  
+    - CVaR objective (alpha tail) with multi-start Nelder–Mead
+    - Scalable ansatz (auto from sequence)
+
   • Outputs:  
     1. A text summary of minimum CVaR energy and configuration bits  
     2. A PNG of the optimal circuit diagram  
     3. A convergence scatter plot of CVaR energies per iteration  
     4. A histogram of high-probability bitstrings (≥2%)
+    5. Best peptide folding bitstring + CSV (component energies)
+    6. bitstring_summary.csv (optimized statevector distribution, energies, export flags)
+    7. bitstring_summary_cvar.csv (same distribution — kept for continuity)
     5. A viewer-ready 3D peptide backbones consistent with the discrete folding cues captured by the quantum bitstrings.
 
 Results are saved under a user-specified directory (default `./results`).  
@@ -44,7 +50,7 @@ long_description = extended_description + "\n\n" + readme_md
 
 setup(
     name="qupepfold",
-    version="0.5.0",
+    version="0.6.0",
     author=", ".join(authors),
     author_email=", ".join(author_emails),
     description="QuPepFold: Quantum peptide folding simulations with Qiskit",
