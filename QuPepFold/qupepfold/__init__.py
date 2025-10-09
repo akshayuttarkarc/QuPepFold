@@ -1,15 +1,19 @@
 from .qupepfold import (
     generate_turn2qubit,
-    protein_config_ansatz,
-    exact_hamiltonian,
+    count_interaction_qubits,
     build_mj_interactions,
-    protein_vqe_objective,
+    exact_hamiltonian,
+    build_scalable_ansatz,
+    statevector_fold_probs,
+    optimize_cvar_multistart,
 )
 
 __all__ = [
     "generate_turn2qubit",
-    "protein_config_ansatz",
-    "exact_hamiltonian",
+    "count_interaction_qubits",
     "build_mj_interactions",
-    "protein_vqe_objective",
+    "exact_hamiltonian",
+    "build_scalable_ansatz",
+    "statevector_fold_probs",
+    "optimize_cvar_multistart",
 ]
