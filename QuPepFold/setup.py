@@ -50,7 +50,7 @@ long_description = extended_description + "\n\n" + readme_md
 
 setup(
     name="qupepfold",
-    version="0.6.0",
+    version="0.6.2",
     author=", ".join(authors),
     author_email=", ".join(author_emails),
     description="QuPepFold: Quantum peptide folding simulations with Qiskit",
