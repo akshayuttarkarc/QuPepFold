@@ -4,16 +4,16 @@ QupepFold is a small, research-oriented toolkit that turns short amino-acid sequ
 
 ### Features
 
-✨ Easy installation.
-✨ Simple CLI usage.
-✨ Get detailed outputs: Qubit mapping, best CVaR energy, probable bitstrings, and more!
-✨ Visualize your results with optimal_circuit.png, cvar_scatter.png, and bitstring_histogram.png.
-✨ Export 3D PDB files and summaries.
+✨ Easy installation.<br>
+✨ Simple CLI usage.<br>
+✨ Get detailed outputs: Qubit mapping, best CVaR energy, probable bitstrings, and more!<br>
+✨ Visualize your results with optimal_circuit.png, cvar_scatter.png, and bitstring_histogram.png.<br>
+✨ Export 3D PDB files and summaries.<br>
 
 ## Installation and easy way to use in CLI
 
-`pip3 install qupepfold`
-`pip3 install pylatexenc`
+`pip3 install qupepfold`<br>
+`pip3 install pylatexenc`<br>
 
 `qupepfold --seq APRLFHG --tries 30 --shots 1000 --alpha 0.025 --write-csv --out /path/to/output/directory`
 
