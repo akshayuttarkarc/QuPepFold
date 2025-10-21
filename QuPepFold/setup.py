@@ -58,7 +58,7 @@ setup(
     long_description_content_type="text/markdown",
     url="http://vidyaniranjan.co.in/?i=1",
     packages=find_packages(),
-    include_package_data=True,          
+    include_package_data=True,
     install_requires=[
         "qiskit>=0.39",
         "qiskit-aer",
@@ -66,6 +66,11 @@ setup(
         "matplotlib",
         "scipy",
     ],
+    extras_require={
+        "gpu": [
+            "qiskit-aer-gpu>=0.12; platform_system=='Linux'",
+        ],
+    },
         entry_points={
          "console_scripts": [
              "qupepfold=qupepfold.cli:main",  # normal setuptools stub

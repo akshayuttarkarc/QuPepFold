@@ -15,6 +15,10 @@ dependencies = [
   "matplotlib",
   "scipy",
 ]
+[project.optional-dependencies]
+gpu = [
+  "qiskit-aer-gpu>=0.12; platform_system == 'Linux'",
+]
 authors = [
   { name="Akshay Uttarkar", email="akshayuttarkar@gmail.com" },
 ]

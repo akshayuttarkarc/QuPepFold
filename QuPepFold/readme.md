@@ -7,7 +7,12 @@ QupepFold is a small, research-oriented toolkit that turns short amino-acid sequ
 pip3 install qupepfold
 pip3 install pylatexenc
 
-qupepfold --seq APRLFHG --tries 30 --alpha 0.025 --write-csv --out ./results
+# Optional CUDA extras (Linux + NVIDIA GPU)
+pip3 install "qupepfold[gpu]"
+
+qupepfold --seq APRLFHG --tries 30 --alpha 0.025 --write-csv --out ./results --gpu
+
+# Interactive mode asks: "Use CUDA GPU acceleration if available?" – reply y/n.
 
 ### What to expect in output in terminal
 

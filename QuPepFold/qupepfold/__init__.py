@@ -6,6 +6,8 @@ from .qupepfold import (
     build_scalable_ansatz,
     statevector_fold_probs,
     optimize_cvar_multistart,
+    GPU_DEVICE_DEFAULT,
+    GPU_PRECISION_DEFAULT,
 )
 
 __all__ = [
@@ -16,4 +18,6 @@ __all__ = [
     "build_scalable_ansatz",
     "statevector_fold_probs",
     "optimize_cvar_multistart",
+    "GPU_DEVICE_DEFAULT",
+    "GPU_PRECISION_DEFAULT",
 ]

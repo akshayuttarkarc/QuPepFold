@@ -11,6 +11,8 @@ from . import (
     build_scalable_ansatz,
     statevector_fold_probs,
     exact_hamiltonian,
+    GPU_DEVICE_DEFAULT,
+    GPU_PRECISION_DEFAULT,
 )
 
 __all__ = ["main"]
@@ -22,6 +24,17 @@ def main():
     parser.add_argument("--alpha", type=float, default=0.025, help="CVaR tail mass (0<alpha<1)")
     parser.add_argument("--shots", type=int, default=1024, help="(Informational) shots to report")
     parser.add_argument("--out", default="./results", help="Output directory")
+    parser.add_argument(
+        "--gpu",
+        action="store_true",
+        help="Attempt to accelerate simulations with a CUDA-enabled AerSimulator",
+    )
+    parser.add_argument(
+        "--gpu-precision",
+        choices=["single", "double"],
+        default=GPU_PRECISION_DEFAULT,
+        help="Precision to request for the CUDA statevector backend",
+    )
     parser.add_argument("--write-csv", action="store_true", help="Write bitstring_summary.csv")
     args = parser.parse_args()
 
@@ -40,7 +53,17 @@ def main():
         "numQubitsInteraction": num_q_int,
         "interactionEnergy": build_mj_interactions(seq),
         "numShots": int(args.shots),
+        "prefer_gpu": bool(args.gpu),
+        "gpu_precision": args.gpu_precision,
+        "gpu_device": GPU_DEVICE_DEFAULT,
     }
+
+    if hyper["prefer_gpu"]:
+        print(
+            f"[GPU] CUDA acceleration requested (device={hyper['gpu_device']}, precision={hyper['gpu_precision']})."
+        )
+    else:
+        print("[GPU] Using CPU statevector simulation.")
 
     print("=== Qubit mapping ===")
     print("turn2qubit:", turn2qubit)

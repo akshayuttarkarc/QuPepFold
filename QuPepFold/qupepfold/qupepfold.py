@@ -8,7 +8,7 @@ from scipy.optimize import minimize
 
 try:
     from qiskit import QuantumCircuit, transpile
-    from qiskit_aer import AerSimulator
+    from qiskit_aer import AerSimulator, AerError
     from qiskit.visualization import circuit_drawer
     from qiskit.quantum_info import Statevector
 except Exception as e:
@@ -19,6 +19,8 @@ CVAR_ALPHA_DEFAULT   = 0.025
 MAX_EVALS_PER_TRY    = 80        # per-iteration budget for Nelder–Mead (we do many tries)
 EXPORT_P_MIN_DEFAULT = 0.02
 RNG_SEED             = 29507
+GPU_DEVICE_DEFAULT   = "GPU"
+GPU_PRECISION_DEFAULT = "single"
 
 # Geometry (Å; degrees→radians)
 _BOND = {"C-N": 1.329, "N-CA": 1.458, "CA-C": 1.525, "C=O": 1.229}
@@ -82,7 +84,27 @@ def read_cli_inputs():
     output_dir = ask("Enter output directory [default './results']: ", "./results")
     os.makedirs(output_dir, exist_ok=True)
 
-    return protein_sequence, max_iterations, num_shots, export_p, cvar_alpha, output_dir
+    gpu_answer = ask("Use CUDA GPU acceleration if available? [y/N]: ", "n").lower()
+    prefer_gpu = gpu_answer in {"y", "yes", "true", "1"}
+    gpu_precision = GPU_PRECISION_DEFAULT
+    if prefer_gpu:
+        precision_answer = ask(
+            "GPU precision (single/double) [default single]: ",
+            GPU_PRECISION_DEFAULT,
+        ).lower()
+        if precision_answer in {"single", "double"}:
+            gpu_precision = precision_answer
+
+    return (
+        protein_sequence,
+        max_iterations,
+        num_shots,
+        export_p,
+        cvar_alpha,
+        output_dir,
+        prefer_gpu,
+        gpu_precision,
+    )
 
 # ======================================================================================
 # Config mapping & interactions
@@ -251,10 +273,10 @@ def build_scalable_ansatz(parameters: np.ndarray, hyper: Dict, measure: bool = F
         qc.measure(range(qc.num_qubits), range(qc.num_clbits))
     return qc
 
-def statevector_fold_probs(qc: QuantumCircuit, hyper: Dict) -> Dict[str, float]:
-    """Exact probabilities for measured qubits (cfg+int), ancilla excluded."""
-    sv = Statevector.from_instruction(qc)
-    probs = np.abs(sv.data) ** 2
+def _fold_probs_from_statevector(statevector, qc: QuantumCircuit, hyper: Dict) -> Dict[str, float]:
+    """Helper: fold amplitudes from a statevector into measured-qubit probabilities."""
+    amps = np.asarray(statevector, dtype=np.complex128).ravel()
+    probs = np.abs(amps) ** 2
     Q = qc.num_qubits
     _, _, _, _, measured_idx = qubit_layout(hyper)
 
@@ -264,6 +286,61 @@ def statevector_fold_probs(qc: QuantumCircuit, hyper: Dict) -> Dict[str, float]:
         fold = ''.join(b_le[j] for j in measured_idx)[::-1]
         out[fold] = out.get(fold, 0.0) + float(p)
     return out
+
+
+def _report_gpu_fallback(hyper: Dict, message: str):
+    """Disable GPU usage for this hyper dict and log the provided message once."""
+    if not hyper.get("_gpu_failure_reported", False):
+        print(message)
+        hyper["_gpu_failure_reported"] = True
+    hyper["prefer_gpu"] = False
+    hyper.pop("_gpu_statevector_sim", None)
+
+
+def _statevector_probs_cpu(qc: QuantumCircuit, hyper: Dict) -> Dict[str, float]:
+    sv = Statevector.from_instruction(qc)
+    return _fold_probs_from_statevector(sv, qc, hyper)
+
+
+def _statevector_probs_gpu(qc: QuantumCircuit, hyper: Dict) -> Dict[str, float]:
+    sim = hyper.get("_gpu_statevector_sim")
+    if sim is None:
+        device = hyper.get("gpu_device", GPU_DEVICE_DEFAULT)
+        precision = hyper.get("gpu_precision", GPU_PRECISION_DEFAULT)
+        try:
+            sim = AerSimulator(method="statevector", device=device, precision=precision)
+            hyper["_gpu_statevector_sim"] = sim
+        except Exception as exc:
+            _report_gpu_fallback(
+                hyper,
+                f"[GPU] Unable to initialise CUDA AerSimulator ({exc}). Falling back to CPU.",
+            )
+            return _statevector_probs_cpu(qc, hyper)
+
+    try:
+        transpiled = transpile(qc, sim, optimization_level=0, layout_method="trivial")
+        result = sim.run(transpiled).result()
+        sv = result.get_statevector(transpiled)
+        return _fold_probs_from_statevector(sv, qc, hyper)
+    except AerError as exc:
+        _report_gpu_fallback(
+            hyper,
+            f"[GPU] CUDA simulation failed ({exc}). Falling back to CPU statevector.",
+        )
+        return _statevector_probs_cpu(qc, hyper)
+    except Exception as exc:
+        _report_gpu_fallback(
+            hyper,
+            f"[GPU] Unexpected GPU error ({exc}). Reverting to CPU statevector.",
+        )
+        return _statevector_probs_cpu(qc, hyper)
+
+
+def statevector_fold_probs(qc: QuantumCircuit, hyper: Dict) -> Dict[str, float]:
+    """Exact probabilities for measured qubits (cfg+int), optionally via CUDA-enabled Aer."""
+    if hyper.get("prefer_gpu"):
+        return _statevector_probs_gpu(qc, hyper)
+    return _statevector_probs_cpu(qc, hyper)
 
 # ======================================================================================
 # CVaR objective + multi-start optimizer (console updates)
@@ -557,7 +634,16 @@ def plot_energy_breakdown_for_most_negative(probs: Dict[str, float], hyper: Dict
 # ======================================================================================
 def main():
     # === Prompts/inputs (UX parity) ===
-    seq, max_iterations, num_shots, export_p, cvar_alpha, out_dir = read_cli_inputs()
+    (
+        seq,
+        max_iterations,
+        num_shots,
+        export_p,
+        cvar_alpha,
+        out_dir,
+        prefer_gpu,
+        gpu_precision,
+    ) = read_cli_inputs()
 
     # === Mapping & hyper ===
     turn2qubit, fixed_bits, variable_bits = generate_turn2qubit(seq)
@@ -570,7 +656,17 @@ def main():
         "numQubitsInteraction": num_q_int,
         "interactionEnergy": build_mj_interactions(seq),
         "numShots": int(num_shots),
+        "prefer_gpu": bool(prefer_gpu),
+        "gpu_precision": gpu_precision,
+        "gpu_device": GPU_DEVICE_DEFAULT,
     }
+
+    if hyper["prefer_gpu"]:
+        print(
+            f"[GPU] CUDA acceleration requested (device={hyper['gpu_device']}, precision={hyper['gpu_precision']})."
+        )
+    else:
+        print("[GPU] Using CPU statevector simulation.")
 
     total_qubits = num_q_cfg + num_q_int + 1
     print(f"[Init] sequence={seq} (N={len(seq)})")
@@ -616,8 +712,30 @@ Minimum CVaR Energy: {best_cvar:.6f}
     # === (Optional) Aer sampling just to mirror UX feel; not used for decisions ===
     try:
         qc_meas = build_scalable_ansatz(best_x, hyper, measure=True)
-        sim = AerSimulator()
-        _ = sim.run(transpile(qc_meas, sim), shots=num_shots).result().get_counts()
+        sim = None
+        if hyper.get("prefer_gpu"):
+            sim = hyper.get("_gpu_statevector_sim")
+            if sim is None:
+                device = hyper.get("gpu_device", GPU_DEVICE_DEFAULT)
+                precision = hyper.get("gpu_precision", GPU_PRECISION_DEFAULT)
+                try:
+                    sim = AerSimulator(method="statevector", device=device, precision=precision)
+                except Exception as exc:
+                    _report_gpu_fallback(
+                        hyper,
+                        f"[GPU] Unable to initialise CUDA AerSimulator for sampling ({exc}); using CPU backend.",
+                    )
+                    sim = AerSimulator()
+        if sim is None:
+            sim = AerSimulator()
+        _ = (
+            sim.run(
+                transpile(qc_meas, sim, optimization_level=0, layout_method="trivial"),
+                shots=num_shots,
+            )
+            .result()
+            .get_counts()
+        )
     except Exception as e:
         print("Aer sampling skipped (simulator error):", e)
 
