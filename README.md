@@ -1,3 +1,8 @@
+![Pepy Total Downloads](https://img.shields.io/pepy/dt/Qupepfold)
+![PyPI - License](https://img.shields.io/pypi/l/Qupepfold)
+![PyPI - Version](https://img.shields.io/pypi/v/Qupepfold?logo=pypi)
+
+
 # QuPepFold
 
 QupepFold is a small, research-oriented toolkit that turns short amino-acid sequences into quantum bitstring encodings, optimizes them with a CVaR-VQE routine, and exports 3D PDB files (with CONECT records) for high-probability folds. It’s built to be easy to run, easy to inspect, and easy to tweak.
