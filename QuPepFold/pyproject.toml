@@ -23,3 +23,6 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Topic :: Scientific/Engineering :: Quantum Computing",
 ]
+
+[project.scripts]
+qupepfold = "qupepfold.cli:main"
