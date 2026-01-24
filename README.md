@@ -1,6 +1,11 @@
 ![Pepy Total Downloads](https://img.shields.io/pepy/dt/Qupepfold)
 ![PyPI - License](https://img.shields.io/pypi/l/Qupepfold)
 ![PyPI - Version](https://img.shields.io/pypi/v/Qupepfold?logo=pypi)
+![Libraries.io dependency status for GitHub repo](https://img.shields.io/librariesio/github/akshayuttarkarc/Qupepfold?style=flat&logo=dependencycheck)
+![PyPI - Implementation](https://img.shields.io/pypi/implementation/qupepfold?logo=cpython)
+![PyPI - Python Version](https://img.shields.io/pypi/pyversions/qupepfold)
+![PyPI - Wheel](https://img.shields.io/pypi/wheel/qupepfold)
+
 
 
 # QuPepFold
