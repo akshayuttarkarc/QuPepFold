@@ -443,7 +443,7 @@ def make_pdbs_from_probs(filtered_probs: Dict[str,float], hyper: Dict, seq: str,
         print(f"Zipped bundle → {zip_path}")
     else:
         print("No PDBs generated (no bitstrings above threshold).")
-    return pdb_dir, zip_path if made else (pdb_dir, None)
+    return pdb_dir, (zip_path if made else None)
 
 # ======================================================================================
 # Energy breakdown utilities (BEST FOLDED PEPTIDE BITSTRING)
