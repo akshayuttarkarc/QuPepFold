@@ -1,4 +1,5 @@
 [![Qiskit Ecosystem](https://qisk.it/e-ab89baa7)](https://qisk.it/e)
+![Static Badge](https://img.shields.io/badge/Accepted_v_0.5.0-PLoS_ONE-green?style=flat&logo=pubmed&labelColor=blue)
 ![Static Badge](https://img.shields.io/badge/Platform-Linux_%7C_MacOS_%7C_Windows-purple?style=flat&labelColor=blue)
 ![Pepy Total Downloads](https://img.shields.io/pepy/dt/Qupepfold)
 ![PyPI - License](https://img.shields.io/pypi/l/Qupepfold)
