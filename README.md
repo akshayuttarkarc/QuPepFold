@@ -1,3 +1,4 @@
+[![Qiskit Ecosystem](https://qisk.it/e-ab89baa7)](https://qisk.it/e)
 ![Pepy Total Downloads](https://img.shields.io/pepy/dt/Qupepfold)
 ![PyPI - License](https://img.shields.io/pypi/l/Qupepfold)
 ![PyPI - Version](https://img.shields.io/pypi/v/Qupepfold?logo=pypi)
