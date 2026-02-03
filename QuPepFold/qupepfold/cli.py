@@ -16,6 +16,8 @@ from . import (
     make_pdbs_from_probs,
     plot_energy_breakdown_for_most_negative,
     MAX_EVALS_PER_TRY,
+    # GPU support
+    check_gpu_available,
 )
 
 try:
@@ -39,6 +41,8 @@ def main():
                         help="Generate all outputs: summary, circuit PNG, histogram, CSVs, 3D PDBs, energy breakdown, CVaR scatter")
     parser.add_argument("--export-p", type=float, default=EXPORT_P_MIN_DEFAULT,
                         help=f"Min probability to export PDBs (default {EXPORT_P_MIN_DEFAULT})")
+    parser.add_argument("--GPU", action="store_true", dest="use_gpu",
+                        help="Enable GPU-accelerated simulation (requires CUDA and qiskit-aer-gpu)")
     args = parser.parse_args()
 
     seq = args.seq.upper()
@@ -64,14 +68,25 @@ def main():
     print("var bits:  ", variable_bits)
     print(f"cfg qubits: {num_q_cfg}  |  int qubits: {num_q_int}  |  total (incl. ancilla): {num_q_cfg+num_q_int+1}")
 
+    # GPU status check
+    use_gpu = args.use_gpu
+    if use_gpu:
+        if check_gpu_available():
+            print("\n[GPU] ✓ CUDA GPU acceleration enabled")
+        else:
+            print("\n[GPU] ✗ GPU requested but not available, falling back to CPU")
+            use_gpu = False
+    else:
+        print("\n[CPU] Running on CPU (use --GPU to enable GPU acceleration)")
+
     # Optimize CVaR (multi-start)
     print(f"\n[CVaR-VQE] alpha={args.alpha}, tries={args.tries}")
-    best_x, best_cvar, trace = optimize_cvar_multistart(hyper, args.tries, args.alpha)
+    best_x, best_cvar, trace = optimize_cvar_multistart(hyper, args.tries, args.alpha, use_gpu=use_gpu)
     print(f"Minimum CVaR Energy: {best_cvar:.6f}")
 
     # Distribution at optimum (statevector)
     qc = build_scalable_ansatz(best_x, hyper, measure=False)
-    probs = statevector_fold_probs(qc, hyper)          # dict: bitstring -> probability
+    probs = statevector_fold_probs(qc, hyper, use_gpu=use_gpu)          # dict: bitstring -> probability
     states = list(probs.keys())
     pvals = np.array([probs[s] for s in states], float)
     energies = exact_hamiltonian(states, hyper)

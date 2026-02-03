@@ -1,5 +1,6 @@
 qiskit>=0.39
 qiskit-aer
+qiskit-aer-gpu
 numpy
 matplotlib
 scipy

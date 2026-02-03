@@ -9,6 +9,10 @@ from .qupepfold import (
     make_pdbs_from_probs,
     plot_energy_breakdown_for_most_negative,
     MAX_EVALS_PER_TRY,
+    # GPU support
+    check_gpu_available,
+    get_simulator,
+    USE_GPU_DEFAULT,
 )
 
 __all__ = [
@@ -22,4 +26,8 @@ __all__ = [
     "make_pdbs_from_probs",
     "plot_energy_breakdown_for_most_negative",
     "MAX_EVALS_PER_TRY",
+    # GPU support
+    "check_gpu_available",
+    "get_simulator",
+    "USE_GPU_DEFAULT",
 ]
