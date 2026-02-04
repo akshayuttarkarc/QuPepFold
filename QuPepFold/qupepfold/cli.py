@@ -2,6 +2,8 @@
 import os
 import csv
 import argparse
+import numpy as np
+import matplotlib.pyplot as plt
 
 from . import (
     generate_turn2qubit,
@@ -11,9 +13,21 @@ from . import (
     build_scalable_ansatz,
     statevector_fold_probs,
     exact_hamiltonian,
+    make_pdbs_from_probs,
+    plot_energy_breakdown_for_most_negative,
+    MAX_EVALS_PER_TRY,
+    # GPU support
+    check_gpu_available,
 )
 
+try:
+    from qiskit.visualization import circuit_drawer
+except Exception:
+    circuit_drawer = None
+
 __all__ = ["main"]
+
+EXPORT_P_MIN_DEFAULT = 0.02
 
 def main():
     parser = argparse.ArgumentParser(prog="qupepfold")
@@ -23,6 +37,12 @@ def main():
     parser.add_argument("--shots", type=int, default=1024, help="(Informational) shots to report")
     parser.add_argument("--out", default="./results", help="Output directory")
     parser.add_argument("--write-csv", action="store_true", help="Write bitstring_summary.csv")
+    parser.add_argument("--pdb", action="store_true",
+                        help="Generate all outputs: summary, circuit PNG, histogram, CSVs, 3D PDBs, energy breakdown, CVaR scatter")
+    parser.add_argument("--export-p", type=float, default=EXPORT_P_MIN_DEFAULT,
+                        help=f"Min probability to export PDBs (default {EXPORT_P_MIN_DEFAULT})")
+    parser.add_argument("--GPU", action="store_true", dest="use_gpu",
+                        help="Enable GPU-accelerated simulation (requires CUDA and qiskit-aer-gpu)")
     args = parser.parse_args()
 
     seq = args.seq.upper()
@@ -48,15 +68,27 @@ def main():
     print("var bits:  ", variable_bits)
     print(f"cfg qubits: {num_q_cfg}  |  int qubits: {num_q_int}  |  total (incl. ancilla): {num_q_cfg+num_q_int+1}")
 
+    # GPU status check
+    use_gpu = args.use_gpu
+    if use_gpu:
+        if check_gpu_available():
+            print("\n[GPU] ✓ CUDA GPU acceleration enabled")
+        else:
+            print("\n[GPU] ✗ GPU requested but not available, falling back to CPU")
+            use_gpu = False
+    else:
+        print("\n[CPU] Running on CPU (use --GPU to enable GPU acceleration)")
+
     # Optimize CVaR (multi-start)
     print(f"\n[CVaR-VQE] alpha={args.alpha}, tries={args.tries}")
-    best_x, best_cvar, trace = optimize_cvar_multistart(hyper, args.tries, args.alpha)
-    print(f"[CVaR-VQE] best CVaR energy: {best_cvar:.6f}")
+    best_x, best_cvar, trace = optimize_cvar_multistart(hyper, args.tries, args.alpha, use_gpu=use_gpu)
+    print(f"Minimum CVaR Energy: {best_cvar:.6f}")
 
     # Distribution at optimum (statevector)
     qc = build_scalable_ansatz(best_x, hyper, measure=False)
-    probs = statevector_fold_probs(qc, hyper)          # dict: bitstring -> probability
+    probs = statevector_fold_probs(qc, hyper, use_gpu=use_gpu)          # dict: bitstring -> probability
     states = list(probs.keys())
+    pvals = np.array([probs[s] for s in states], float)
     energies = exact_hamiltonian(states, hyper)
 
     # Report: most probable & most negative-energy bitstrings
@@ -68,8 +100,105 @@ def main():
     print(f"Most probable bitstring : {s_most_prob} (P={probs[s_most_prob]:.6f})")
     print(f"Lowest-energy bitstring : {s_min_energy} (E={energies[s_min_idx]:.6f})")
 
-    # Optional CSV dump
-    if args.write_csv:
+    # --pdb flag: generate all outputs
+    if args.pdb:
+        out_dir = args.out
+        os.makedirs(out_dir, exist_ok=True)
+        export_p = args.export_p
+
+        # 1. Save text summary
+        summary = f"""
+--- Quantum Protein Folding Summary ---
+
+Protein Sequence: {seq}
+Fixed Bits:       {fixed_bits}
+Variable Bits:    {variable_bits}
+Shots Used:       {args.shots}
+CVaR alpha:       {args.alpha}
+Tries:            {args.tries} (each Nelder–Mead maxfev={MAX_EVALS_PER_TRY})
+Minimum CVaR Energy: {best_cvar:.6f}
+"""
+        summary_path = os.path.join(out_dir, "output_summary.txt")
+        with open(summary_path, "w") as f:
+            f.write(summary.strip() + "\n")
+        print(f"Saved summary → {summary_path}")
+
+        # 2. Draw ansatz circuit (no measurements)
+        try:
+            if circuit_drawer:
+                circuit_path = os.path.join(out_dir, "optimal_circuit.png")
+                circuit_drawer(qc, output='mpl', filename=circuit_path)
+                print(f"Saved circuit diagram → {circuit_path}")
+            else:
+                print("Circuit drawing skipped (qiskit.visualization not available)")
+        except Exception as e:
+            print("Circuit drawing failed:", e)
+
+        # 3. Histogram of ≥ export_p using exact probs
+        filtered = {k: float(v) for k, v in probs.items() if v >= export_p}
+        hist_path = os.path.join(out_dir, "bitstring_histogram.png")
+        plt.figure(figsize=(10, 5))
+        if filtered:
+            xs = list(filtered.keys())
+            ys = [filtered[k] for k in xs]
+            plt.bar(xs, ys, edgecolor='black')
+        plt.xticks(rotation=45, ha='right')
+        plt.ylabel("Probability")
+        plt.xlabel("Bitstring (config+interaction)")
+        plt.title(f"High-Probability Bitstrings (≥ {export_p:.2%})")
+        plt.tight_layout()
+        plt.savefig(hist_path)
+        plt.close()
+        print(f"Saved bitstring histogram → {hist_path}")
+
+        # 4. CSV: all states with energy and export flag
+        csv_all = os.path.join(out_dir, "bitstring_summary.csv")
+        with open(csv_all, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["bitstring", "cfg_bits", "probability", "energy", "exported_PDB3D"])
+            for s, p, e in zip(states, pvals, energies):
+                cfg_bits = s[:hyper["numQubitsConfig"]]
+                exported = int(filtered.get(s, 0.0) >= export_p)
+                w.writerow([s, cfg_bits, float(p), float(e), exported])
+        print(f"Saved CSV → {csv_all}")
+
+        # 5. Generate 3D PDBs for high-probability bitstrings
+        try:
+            pdb_dir, zip_path = make_pdbs_from_probs(filtered, hyper, seq, out_dir)
+            print(f"3D PDBs created in: {pdb_dir}")
+            if zip_path:
+                print(f"3D PDB ZIP: {zip_path}")
+        except Exception as e:
+            import traceback as _tb
+            print("3D PDB generation failed:", e)
+            _tb.print_exc()
+
+        # 6. CVaR distribution CSV
+        csv_cvar = os.path.join(out_dir, "bitstring_summary_cvar.csv")
+        with open(csv_cvar, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["bitstring", "probability", "energy"])
+            for s, p, e in zip(states, pvals, energies):
+                w.writerow([s, float(p), float(e)])
+        print(f"Saved CVaR distribution CSV → {csv_cvar}")
+
+        # 7. Energy breakdown for the most negative bitstring
+        plot_energy_breakdown_for_most_negative(probs, hyper, out_dir)
+
+        # 8. CVaR scatter plot across iterations
+        scatter_path = os.path.join(out_dir, "cvar_scatter.png")
+        plt.figure()
+        plt.scatter(range(1, len(trace) + 1), trace, marker='o')
+        plt.title("CVaR Energies Across Iterations")
+        plt.xlabel("Iteration")
+        plt.ylabel("CVaR Energy")
+        plt.grid(True)
+        plt.savefig(scatter_path)
+        plt.close()
+        print(f"Saved CVaR scatter → {scatter_path}")
+
+    # Optional CSV dump (legacy flag)
+    elif args.write_csv:
         os.makedirs(args.out, exist_ok=True)
         csv_path = os.path.join(args.out, "bitstring_summary.csv")
         with open(csv_path, "w", newline="") as f:

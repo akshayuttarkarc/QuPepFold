@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: qupepfold
-Version: 0.6.2
+Version: 0.8.0
 Summary: QuPepFold: Quantum peptide folding simulations with Qiskit
 Home-page: http://vidyaniranjan.co.in/?i=1
 Author: Akshay Uttarkar, Vinay Kumar, Vidya Niranjan
@@ -21,25 +21,39 @@ Dynamic: requires-python
 
 # QuPepFold
 
-Quantum peptide‐folding simulations built on Qiskit.
+QupepFold is a small, research-oriented toolkit that turns short amino-acid sequences into quantum bitstring encodings, optimizes them with a CVaR-VQE routine, and exports 3D PDB files (with CONECT records) for high-probability folds. It’s built to be easy to run, easy to inspect, and easy to tweak.
 
-## Installation
+## Installation and easy way to use in CLI
 
-```bash
 pip3 install qupepfold
+pip3 install pylatexenc
+
+qupepfold --seq APRLFHG --tries 30 --alpha 0.025 --write-csv --out ./results
+
+### What to expect in output in terminal
+
+Qubit mapping (config/interaction/ancilla counts)
+Best CVaR energy
+Most probable bitstring (with probability)
+Lowest-energy bitstring (with energy)
+
+### Results in the output folder
+
+1. output_summary.txt — quick result summary
+2. optimal_circuit.png — ansatz diagram (no measurements)
+2. cvar_scatter.png — CVaR value per multi-start iteration
+2. bitstring_histogram.png — bar chart for states ≥ threshol
+3. bitstring_summary.csv — [bitstring, cfg_bits, probability, energy, exported_PDB3D]
+4. bitstring_summary_cvar.csv — same distribution (kept for continuity)
+5. most_negative_energy_breakdown.png + .csv — component energies (backbone/MJ/distance/locality) for the lowest energy state
+6. pdb3d/*.pdb — one PDB per exported bitstring, with CONECT bonds
+7. pdb3d_bitstrings_ge_2pct.zip — bundle of those PDBs
+
+### Uninstall
+
+pip3 uninstall qupepfold
 
 
-### You can use in our custom code as
-
-from qupepfold import generate_turn2qubit, protein_vqe_objective
-
-seq = "HHPHPH"
-fixed, fb, vb = generate_turn2qubit(seq)
-result = protein_vqe_objective(
-    protein_sequence=seq,
-    hyperParams={…}
-)
-print(result)
 
 
 
