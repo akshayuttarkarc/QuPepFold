@@ -64,31 +64,7 @@ pip3 uninstall qupepfold
 3. A. Uttarkar, A. S. Setlur and V. Niranjan, "T-Gate Enabled Fault-Tolerant Ansatz Circuit Design for Variational Quantum Algorithms in Peptide Folding on Aria-1," 2024 International Conference on Artificial Intelligence and Emerging Technology (Global AI Summit), Greater Noida, India, 2024, pp. 1271-1276, doi: 10.1109/GlobalAISummit62156.2024.10947993
 4. A. Uttarkar and V. Niranjan, "Quantum Enabled Protein Folding of Disordered Regions in Ubiquitin C Via Error Mitigated VQE Benchmarked on Tensor Network Simulator and Aria 1," in IEEE Transactions on Molecular, Biological, and Multi-Scale Communications, doi: 10.1109/TMBMC.2025.3600516
 
-### 🚀 Future Version Update: GPU Acceleration
-
-The next major planned update is integrating **GPU support** to accelerate the quantum circuit simulations and classical optimization loops at the core of QuPepFold.
-
----
-
-### Why It Matters
-
-* **Massive Parallelism**: GPUs excel at performing thousands of calculations simultaneously. This is ideal for the heavy matrix and vector math required to simulate quantum states, offering a significant speedup over sequential CPU processing. 
-
-* **Accelerated VQE Loop**: The VQE (Variational Quantum Eigensolver) algorithm is iterative. By running the numerous circuit evaluations on a GPU, the entire optimization process to find the lowest energy state is drastically shortened.
-
-* **Bigger, Bolder Simulations**: Faster computation makes it feasible to tackle more complex problems, such as longer amino acid sequences (which require more qubits) or running a higher number of optimization attempts (`--tries`) to ensure a better result.
-
-* **Rapid Prototyping**: What currently takes hours can be reduced to minutes. This allows for more interactive research, enabling rapid testing of different parameters and sequences.
-
----
-
-### Expected Impact on Runtime
-
-We anticipate a **performance boost of 10x to over 50x**, depending on the specific hardware and problem complexity.
-
-A typical simulation could see a runtime reduction like this:
-* **On CPU**: ~1 hour
-* **On GPU**: ~2-5 minutes
+### 🚀 Future Version Update: Scalability for larger peptides
 
 
 
