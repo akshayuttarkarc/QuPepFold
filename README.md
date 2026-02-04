@@ -1,5 +1,4 @@
 [![Qiskit Ecosystem](https://qisk.it/e-ab89baa7)](https://qisk.it/e)
-![Static Badge](https://img.shields.io/badge/Accepted_v_0.5.0-PLoS_ONE-green?style=flat&logo=pubmed&labelColor=blue)
 ![Static Badge](https://img.shields.io/badge/Platform-Linux_%7C_MacOS_%7C_Windows-purple?style=flat&labelColor=blue)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/qupepfold?period=total&units=INTERNATIONAL_SYSTEM&left_color=GRAY&right_color=BRIGHTGREEN&left_text=Total+Downloads)](https://pepy.tech/projects/qupepfold)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/qupepfold?period=monthly&units=NONE&left_color=GRAY&right_color=BRIGHTGREEN&left_text=Last+Month+Downloads)](https://pepy.tech/projects/qupepfold)
