@@ -18,6 +18,9 @@ from . import (
     MAX_EVALS_PER_TRY,
     # GPU support
     check_gpu_available,
+    # v0.9.0 performance helpers
+    _make_fill_fn,
+    _interaction_pairs,
 )
 
 try:
@@ -40,10 +43,16 @@ def main():
     parser.add_argument("--pdb", action="store_true",
                         help="Generate all outputs: summary, circuit PNG, histogram, CSVs, 3D PDBs, energy breakdown, CVaR scatter")
     parser.add_argument("--export-p", type=float, default=EXPORT_P_MIN_DEFAULT,
-                        help=f"Min probability to export PDBs (default {EXPORT_P_MIN_DEFAULT})")
+                        metavar="PROB",
+                        help=f"Min probability threshold (0-1) to export PDBs (default {EXPORT_P_MIN_DEFAULT}). "
+                             f"Example: --export-p 0.02")
     parser.add_argument("--GPU", action="store_true", dest="use_gpu",
                         help="Enable GPU-accelerated simulation (requires CUDA and qiskit-aer-gpu)")
     args = parser.parse_args()
+
+    # Validate --export-p range
+    if not (0.0 < args.export_p < 1.0):
+        parser.error(f"--export-p must be a float between 0 and 1 (e.g. 0.02), got: {args.export_p}")
 
     seq = args.seq.upper()
     if not (2 <= len(seq) <= 10) or any(c not in "ARNDCEQGHILKMFPSTWYV" for c in seq):
@@ -60,6 +69,9 @@ def main():
         "numQubitsInteraction": num_q_int,
         "interactionEnergy": build_mj_interactions(seq),
         "numShots": int(args.shots),
+        # v0.9.0 performance: pre-compiled fill closure + interaction pair list
+        "_fill_fn": _make_fill_fn(turn2qubit),
+        "_pairs":   _interaction_pairs(len(seq)),
     }
 
     print("=== Qubit mapping ===")
