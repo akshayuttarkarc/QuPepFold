@@ -1,10 +1,94 @@
 import os
+import io
 import math
 import csv
+import collections
 import numpy as np
 import matplotlib.pyplot as plt
 from typing import Dict, Tuple, List
 from scipy.optimize import minimize
+
+# ── Module-level caches (Fixes 4, 5) ────────────────────────────────────────
+_MJ_FULL: "np.ndarray | None" = None        # Fix 5: 20×20 MJ singleton
+
+_ENERGY_CACHE_MAXSIZE = 16_384              # Fix 4-B: max unique bitstrings cached
+
+
+class _BoundedCache:
+    """Bounded LRU cache backed by collections.OrderedDict.
+
+    Evicts the least-recently-used entry when maxsize is exceeded, preventing
+    unbounded memory growth during long or repeated optimisation runs.
+    """
+    __slots__ = ("_d", "_maxsize")
+
+    def __init__(self, maxsize: int) -> None:
+        self._d: collections.OrderedDict = collections.OrderedDict()
+        self._maxsize = maxsize
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._d
+
+    def __getitem__(self, key):
+        self._d.move_to_end(key)
+        return self._d[key]
+
+    def __setitem__(self, key, value) -> None:
+        if key in self._d:
+            self._d.move_to_end(key)
+        else:
+            if len(self._d) >= self._maxsize:
+                self._d.popitem(last=False)  # evict LRU
+        self._d[key] = value
+
+    def clear(self) -> None:
+        self._d.clear()
+
+    def __len__(self) -> int:
+        return len(self._d)
+
+
+_energy_cache: _BoundedCache = _BoundedCache(_ENERGY_CACHE_MAXSIZE)
+
+
+def clear_energy_cache() -> None:
+    """Clear the per-bitstring energy cache (call between independent runs)."""
+    _energy_cache.clear()
+
+
+def _make_fill_fn(turn2qubit: str):
+    """Fix 1: Return a fast closure that fills cfg_bits into the template.
+
+    Pre-computes the 'q' positions using numpy so the per-call cost is only
+    a .copy() + fancy-index assignment instead of a full list comprehension.
+    """
+    tmpl = np.array(list(turn2qubit))
+    qpos = np.where(tmpl == 'q')[0]
+
+    def _fill(cfg_bits: str) -> str:
+        t = tmpl.copy()
+        t[qpos] = list(cfg_bits)
+        return ''.join(t)
+
+    return _fill
+
+
+def _delta_vec_fast(turns_arr: np.ndarray, a: int, b: int) -> np.ndarray:
+    """Fix 2: Vectorised delta-vector — replaces the 4-k inner loop.
+
+    Original created 4 × np.array + 4 × np.arange per call.
+    This version uses broadcasting for a single np.arange pass.
+    """
+    seg = turns_arr[a:b]
+    if seg.size == 0:
+        return np.zeros(4)
+    signs = (-1.0) ** np.arange(seg.size)
+    return np.array([(signs * (seg == k)).sum() for k in range(4)], dtype=float)
+
+
+def _interaction_pairs(N: int) -> List[Tuple[int, int]]:
+    """Fix 8: Pre-compute all valid 1-NN interaction pairs for a sequence of length N."""
+    return [(i, j) for i in range(N - 4) for j in range(i + 5, N, 2)]
 
 try:
     from qiskit import QuantumCircuit, transpile
@@ -145,18 +229,21 @@ def count_interaction_qubits(sequence: str) -> int:
     return cnt
 
 def build_mj_interactions(protein: str) -> np.ndarray:
-    """Random symmetric MJ-like matrix mapped to residues (seeded for reproducibility)."""
-    rng = np.random.default_rng(RNG_SEED)
-    MJ = rng.random((20, 20)) * -6.0
-    MJ = np.triu(MJ) + np.triu(MJ, 1).T
+    """Random symmetric MJ-like matrix mapped to residues (seeded for reproducibility).
+
+    Fix 5: The full 20×20 matrix is now generated only once and cached in
+    `_MJ_FULL`; subsequent calls just slice the required N×N submatrix.
+    """
+    global _MJ_FULL
+    if _MJ_FULL is None:
+        rng = np.random.default_rng(RNG_SEED)
+        M = rng.random((20, 20)) * -6.0
+        _MJ_FULL = np.triu(M) + np.triu(M, 1).T
     acids = ["C","M","F","I","L","V","W","Y","A","G","T","S","N","Q","D","E","H","R","K","P"]
-    acid2idx = {a:i for i,a in enumerate(acids)}
+    acid2idx = {a: i for i, a in enumerate(acids)}
     N = len(protein)
-    mat = np.zeros((N, N))
-    for i in range(N):
-        for j in range(N):
-            mat[i, j] = float(MJ[acid2idx[protein[i]], acid2idx[protein[j]]])
-    return mat
+    idx = np.array([acid2idx[aa] for aa in protein], dtype=np.intp)
+    return _MJ_FULL[np.ix_(idx, idx)].copy()
 
 def fill_config_bits(cfg_bits: str, turn2qubit: str) -> str:
     cfg = list(turn2qubit)
@@ -172,60 +259,86 @@ def fill_config_bits(cfg_bits: str, turn2qubit: str) -> str:
 # ======================================================================================
 # Energy calculations
 # ======================================================================================
-def exact_hamiltonian(bitstrings: List[str], hyper: Dict) -> List[float]:
-    """H = H_gc + H_in(1-NN) with penalties lamDis=720, lamLoc=20, lamBack=50."""
-    if isinstance(bitstrings, str):
-        bitstrings = [bitstrings]
+def _compute_single_energy(bs: str, hyper: Dict) -> float:
+    """Compute energy for one bitstring (internal, uncached worker).
+
+    Applies Fixes 1–3, 8:
+      Fix 1 – uses hyper['_fill_fn'] if pre-compiled, else falls back.
+      Fix 2 – uses _delta_vec_fast (vectorised, single np.arange per call).
+      Fix 3 – computes delta_vec(i,j) once; reuses squared-norm for dir2.
+      Fix 8 – iterates hyper['_pairs'] pre-computed list if available.
+    """
     lamDis, lamLoc, lamBack = 720.0, 20.0, 50.0
     N = len(hyper["protein"])
-    energies = []
 
+    cfg_bits = bs[:hyper["numQubitsConfig"]]
+    fill_fn = hyper.get("_fill_fn")
+    config = fill_fn(cfg_bits) if fill_fn else fill_config_bits(cfg_bits, hyper["turn2qubit"])
+    turns_list = [int(config[k:k+2], 2) for k in range(0, len(config), 2)]
+    turns_arr = np.array(turns_list, dtype=np.int32)  # Fix 2: ndarray for _delta_vec_fast
+
+    # H_gc: penalize adjacent equal turns
+    E = lamBack * sum(1 for a, b in zip(turns_list[:-1], turns_list[1:]) if a == b)
+
+    # H_in: 1-NN; interaction bits follow cfg segment
+    pairs = hyper.get("_pairs") or _interaction_pairs(N)  # Fix 8
+    q = hyper["numQubitsConfig"]
+    for i, j in pairs:
+        if q >= len(bs):
+            continue
+        ctrl = bs[q]; q += 1
+        if ctrl == '0':
+            continue
+
+        E += float(hyper["interactionEnergy"][i, j])
+
+        # Fix 2+3: one _delta_vec_fast call per unique (a,b) pair; reuse dv_ij for dir2
+        dv_ij = _delta_vec_fast(turns_arr, i, j)
+        dij   = np.dot(dv_ij, dv_ij)
+
+        if j - 1 > i:
+            dv_ir = _delta_vec_fast(turns_arr, i, j - 1)
+            dir_sq = np.dot(dv_ir, dv_ir)
+        else:
+            dir_sq = 0.0
+
+        if j > i + 1:
+            dv_mj = _delta_vec_fast(turns_arr, i + 1, j)
+            dmj_sq = np.dot(dv_mj, dv_mj)
+        else:
+            dmj_sq = 0.0
+
+        E += lamDis * (dij - 1.0)
+        E += lamLoc * (2.0 - dir_sq)
+        E += lamLoc * (2.0 - dmj_sq)
+
+        if i - 1 >= 0:
+            dv_m1 = _delta_vec_fast(turns_arr, i - 1, j)
+            E += lamLoc * (2.0 - np.dot(dv_m1, dv_m1))
+        if j + 1 <= N - 1:
+            E += lamLoc * (2.0 - dij)   # Fix 3: delta_vec(i,j) already computed → reuse dij
+
+    return float(E)
+
+
+def exact_hamiltonian(bitstrings: List[str], hyper: Dict) -> List[float]:
+    """H = H_gc + H_in(1-NN) with penalties lamDis=720, lamLoc=20, lamBack=50.
+
+    Fix 4: Results are cached in the module-level `_energy_cache` dict keyed
+    on (bitstring, protein, turn2qubit) so repeated calls on identical states
+    (across CVaR evaluations, CSV exports, etc.) pay the cost only once.
+    """
+    if isinstance(bitstrings, str):
+        bitstrings = [bitstrings]
+    protein    = hyper["protein"]
+    turn2qubit = hyper["turn2qubit"]
+    result = []
     for bs in bitstrings:
-        cfg_bits = bs[:hyper["numQubitsConfig"]]
-        config = fill_config_bits(cfg_bits, hyper["turn2qubit"])
-        turns = [int(config[k:k+2], 2) for k in range(0, len(config), 2)]  # length N-1
-
-        # H_gc: penalize adjacent equal turns
-        E = lamBack * sum(1 for a, b in zip(turns[:-1], turns[1:]) if a == b)
-
-        # H_in: 1-NN; interaction bits follow cfg segment
-        q = hyper["numQubitsConfig"]
-        for i in range(0, N - 4):
-            for j in range(i + 5, N, 2):
-                if q >= len(bs):
-                    continue
-                ctrl = bs[q]; q += 1
-                if ctrl == '0':
-                    continue
-
-                E += float(hyper["interactionEnergy"][i, j])
-
-                def delta_vec(a: int, b: int) -> np.ndarray:
-                    seg = turns[a:b]
-                    vec = np.zeros(4)
-                    for k in range(4):
-                        mask = np.array([1 if t == k else 0 for t in seg], float)
-                        if mask.size:
-                            vec[k] = np.sum(((-1) ** np.arange(mask.size)) * mask)
-                    return vec
-
-                dij = np.linalg.norm(delta_vec(i, j)) ** 2
-                dir_ = np.linalg.norm(delta_vec(i, j - 1)) ** 2 if j - 1 > i else 0.0
-                dmj = np.linalg.norm(delta_vec(i + 1, j)) ** 2 if j > i + 1 else 0.0
-
-                E += lamDis * (dij - 1.0)
-                E += lamLoc * (2.0 - dir_)
-                E += lamLoc * (2.0 - dmj)
-
-                if i - 1 >= 0:
-                    dmj2 = np.linalg.norm(delta_vec(i - 1, j)) ** 2
-                    E += lamLoc * (2.0 - dmj2)
-                if j + 1 <= N - 1:
-                    dir2 = np.linalg.norm(delta_vec(i, j)) ** 2
-                    E += lamLoc * (2.0 - dir2)
-
-        energies.append(float(E))
-    return energies
+        key = (bs, protein, turn2qubit)
+        if key not in _energy_cache:
+            _energy_cache[key] = _compute_single_energy(bs, hyper)
+        result.append(_energy_cache[key])
+    return result
 
 # ======================================================================================
 # Scalable ansatz (2×RY + CX loop) and prob extraction
@@ -291,32 +404,50 @@ def build_scalable_ansatz(parameters: np.ndarray, hyper: Dict, measure: bool = F
 
 def statevector_fold_probs(qc: QuantumCircuit, hyper: Dict, use_gpu: bool = False) -> Dict[str, float]:
     """Exact probabilities for measured qubits (cfg+int), ancilla excluded.
-    
+
+    Fix 7 (revised): Processes basis states in fixed-size chunks so peak
+    auxiliary RAM stays at O(CHUNK × M × 8) bytes (~1.5 MB) regardless of Q.
+    The previous single-slab approach allocated a (2^Q × Q) int64 matrix
+    which reaches ~1.5 GB for Q=23 and can cause OOM on larger inputs.
+
     Args:
         qc: Quantum circuit to simulate.
         hyper: Hyperparameters dictionary.
         use_gpu: If True, use GPU-accelerated simulation.
-        
+
     Returns:
         Dictionary mapping bitstrings to probabilities.
     """
     Q = qc.num_qubits
     _, _, _, _, measured_idx = qubit_layout(hyper)
-    
-    if use_gpu:
-        # GPU-accelerated simulation via AerSimulator
-        probs = _statevector_probs_gpu(qc)
-    else:
-        # CPU simulation via Statevector
-        sv = Statevector.from_instruction(qc)
-        probs = np.abs(sv.data) ** 2
+    M = len(measured_idx)
 
-    out: Dict[str, float] = {}
-    for i, p in enumerate(probs):
-        b_le = format(i, f"0{Q}b")[::-1]   # little-endian -> q_{Q-1}..q_0
-        fold = ''.join(b_le[j] for j in measured_idx)[::-1]
-        out[fold] = out.get(fold, 0.0) + float(p)
-    return out
+    if use_gpu:
+        probs_arr = _statevector_probs_gpu(qc)
+    else:
+        sv = Statevector.from_instruction(qc)
+        probs_arr = np.abs(sv.data) ** 2
+
+    # Fix 7 (P1 OOM fix): chunked bit extraction.
+    # Peak extra allocation = CHUNK × M × 8 bytes ≈ 1.5 MB (vs ~1.5 GB slab).
+    CHUNK = 8192
+    measured_arr = np.array(measured_idx, dtype=np.int64)           # (M,)
+    powers = 2 ** np.arange(M, dtype=np.int64)                      # little-endian: bit measured_idx[m] → weight 2^m
+    out_arr = np.zeros(2**M, dtype=float)
+
+    for start in range(0, 2**Q, CHUNK):
+        end = min(start + CHUNK, 2**Q)
+        p_chunk = probs_arr[start:end]
+        if not np.any(p_chunk):                                      # skip zero-prob chunks
+            continue
+        i_chunk = np.arange(start, end, dtype=np.int64)             # (chunk,)
+        # Extract bits at measured positions: (chunk, M) matrix, bounded in size
+        marg = ((i_chunk[:, None] >> measured_arr[None, :]) & 1).dot(powers)
+        np.add.at(out_arr, marg, p_chunk)
+
+    nz = np.nonzero(out_arr)[0]
+    return {format(int(i), f"0{M}b"): float(out_arr[i]) for i in nz}
+
 
 def _statevector_probs_gpu(qc: QuantumCircuit) -> np.ndarray:
     """Compute statevector probabilities using GPU-accelerated AerSimulator."""
@@ -334,28 +465,39 @@ def _statevector_probs_gpu(qc: QuantumCircuit) -> np.ndarray:
 # ======================================================================================
 def cvar_objective(parameters: np.ndarray, hyper: Dict, alpha: float, use_gpu: bool = False) -> float:
     """Compute CVaR objective for given parameters.
-    
+
+    Fix 6: Eliminates double array creation by using np.fromiter; replaces
+    the cumsum+count_nonzero idiom with np.searchsorted; uses a pre-allocated
+    weights array instead of a Python list + append.
+
     Args:
         parameters: Variational parameters for the ansatz.
         hyper: Hyperparameters dictionary.
         alpha: CVaR tail mass parameter.
         use_gpu: If True, use GPU-accelerated simulation.
-        
+
     Returns:
         CVaR energy value.
     """
-    qc = build_scalable_ansatz(parameters, hyper, measure=False)
-    probs = statevector_fold_probs(qc, hyper, use_gpu=use_gpu)
+    qc     = build_scalable_ansatz(parameters, hyper, measure=False)
+    probs  = statevector_fold_probs(qc, hyper, use_gpu=use_gpu)
     states = list(probs.keys())
-    pvals  = np.array([probs[s] for s in states], float)
-    energies = np.array(exact_hamiltonian(states, hyper), float)
+    # Fix 6a: np.fromiter avoids intermediate list
+    pvals    = np.fromiter(probs.values(), dtype=float, count=len(probs))
+    energies = np.array(exact_hamiltonian(states, hyper), dtype=float)
 
-    order = np.argsort(energies)
-    energies = energies[order]; pvals = pvals[order]
-    c = np.cumsum(pvals)
-    k = int(np.count_nonzero(c < alpha))
-    tail = pvals[:k].tolist(); tail.append(alpha - sum(tail))
-    return float(np.dot(tail, energies[:k+1]) / alpha)
+    order    = np.argsort(energies, kind='stable')
+    energies = energies[order]
+    pvals    = pvals[order]
+    c        = np.cumsum(pvals)
+    # Fix 6b: searchsorted is O(log n) and avoids creating a boolean mask
+    k = int(np.searchsorted(c, alpha, side='left'))
+    # Fix 6c: pre-allocated weights array instead of .tolist() + append
+    weights       = np.empty(k + 1)
+    weights[:k]   = pvals[:k]
+    weights[k]    = alpha - (float(c[k - 1]) if k > 0 else 0.0)
+    return float(np.dot(weights, energies[:k + 1]) / alpha)
+
 
 def optimize_cvar_multistart(hyper: Dict, max_iterations: int, alpha: float, use_gpu: bool = False):
     """Run many small-budget optimizations and log CVaR; print progress per try.
@@ -475,7 +617,8 @@ def build_backbone_3d(seq: str, phis: List[float], psis: List[float]) -> List[Di
     return out
 
 def write_pdb_with_conect(bitstring_label: str, seq: str, atoms: List[Dict], out_path: str):
-    lines=[]
+    """Fix 9: Use io.StringIO buffer instead of building a list of strings."""
+    buf = io.StringIO()
     serial=1; resi=1; serial_map=[]; i=0
     while resi<=len(seq):
         aa=seq[resi-1]; resn=AA3.get(aa,"GLY")
@@ -488,13 +631,14 @@ def write_pdb_with_conect(bitstring_label: str, seq: str, atoms: List[Dict], out
                     found=atoms[j]; k=j+1; break
             if found is None: continue
             x,y,z=found["coords"]
-            lines.append(f"ATOM  {serial:5d} {name:>3s}  {resn} A{resi:4d}    {x:8.3f}{y:8.3f}{z:8.3f}  1.00 20.00           C")
+            buf.write(f"ATOM  {serial:5d} {name:>3s}  {resn} A{resi:4d}    {x:8.3f}{y:8.3f}{z:8.3f}  1.00 20.00           C\n")
             res_serials[name]=serial; serial+=1
         serial_map.append(res_serials)
         i=max(i+1,k); resi+=1
 
-    def add_conect(a,b):
-        if a is not None and b is not None: lines.append(f"CONECT{a:5d}{b:5d}")
+    def add_conect(a, b):
+        if a is not None and b is not None:
+            buf.write(f"CONECT{a:5d}{b:5d}\n")
 
     nres=len(serial_map)
     for r in range(nres):
@@ -506,16 +650,23 @@ def write_pdb_with_conect(bitstring_label: str, seq: str, atoms: List[Dict], out
         if r<nres-1:
             t=serial_map[r+1]
             add_conect(s["C"], t["N"])
-    lines.append(f"REMARK BITSTRING {bitstring_label}")
-    lines.append("END")
-    with open(out_path,"w") as f: f.write("\n".join(lines))
+    buf.write(f"REMARK BITSTRING {bitstring_label}\n")
+    buf.write("END\n")
+    with open(out_path, "w") as f:
+        f.write(buf.getvalue())
 
 def make_pdbs_from_probs(filtered_probs: Dict[str,float], hyper: Dict, seq: str, out_dir: str):
     pdb_dir = os.path.join(out_dir, "pdb3d"); os.makedirs(pdb_dir, exist_ok=True)
+    fill_fn = hyper.get("_fill_fn")  # Fix 1: reuse pre-compiled closure
     made=[]
     for bs, p in filtered_probs.items():
         cfg_bits = bs[:hyper["numQubitsConfig"]]
-        turns   = turns_from_cfg_bits(cfg_bits, hyper["turn2qubit"])
+        # Use fast fill_fn if available, else fall back to turns_from_cfg_bits
+        if fill_fn is not None:
+            config = fill_fn(cfg_bits)
+            turns  = [int(config[i:i+2], 2) for i in range(0, len(config), 2)]
+        else:
+            turns = turns_from_cfg_bits(cfg_bits, hyper["turn2qubit"])
         phis, psis = dihedrals_from_turns(turns, len(seq))
         atoms   = build_backbone_3d(seq, phis, psis)
         fname = f"fold3d_{cfg_bits}.pdb"
@@ -541,57 +692,62 @@ def energy_breakdown_components(bitstring: str, hyper: Dict):
     """
     Return (components_dict, total_energy) for a single bitstring.
     Components: backbone (gc), mj, distance (dis), locality (loc).
+
+    Applies Fixes 1, 2, 3, 8: uses fill_fn closure, _delta_vec_fast,
+    deduplicates delta_vec(i,j) call for dir2, and pre-computed pairs.
     """
     lamDis, lamLoc, lamBack = 720.0, 20.0, 50.0
     N = len(hyper["protein"])
 
     cfg_bits = bitstring[:hyper["numQubitsConfig"]]
-    config = fill_config_bits(cfg_bits, hyper["turn2qubit"])
-    turns = [int(config[k:k+2], 2) for k in range(0, len(config), 2)]  # length N-1
+    fill_fn  = hyper.get("_fill_fn")
+    config   = fill_fn(cfg_bits) if fill_fn else fill_config_bits(cfg_bits, hyper["turn2qubit"])
+    turns_list = [int(config[k:k+2], 2) for k in range(0, len(config), 2)]  # length N-1
+    turns_arr  = np.array(turns_list, dtype=np.int32)  # Fix 2
 
     comp = {"backbone": 0.0, "mj": 0.0, "distance": 0.0, "locality": 0.0}
 
     # backbone term
-    comp["backbone"] = lamBack * sum(1 for a, b in zip(turns[:-1], turns[1:]) if a == b)
-
-    # helpers for locality/distance vectors
-    def delta_vec(a: int, b: int) -> np.ndarray:
-        seg = turns[a:b]
-        vec = np.zeros(4)
-        for k in range(4):
-            mask = np.array([1 if t == k else 0 for t in seg], float)
-            if mask.size:
-                vec[k] = np.sum(((-1) ** np.arange(mask.size)) * mask)
-        return vec
+    comp["backbone"] = lamBack * sum(1 for a, b in zip(turns_list[:-1], turns_list[1:]) if a == b)
 
     # interaction bits follow config segment
+    pairs = hyper.get("_pairs") or _interaction_pairs(N)  # Fix 8
     q = hyper["numQubitsConfig"]
-    for i in range(0, N - 4):
-        for j in range(i + 5, N, 2):
-            if q >= len(bitstring):
-                continue
-            ctrl = bitstring[q]; q += 1
-            if ctrl == '0':
-                continue
+    for i, j in pairs:
+        if q >= len(bitstring):
+            continue
+        ctrl = bitstring[q]; q += 1
+        if ctrl == '0':
+            continue
 
-            # MJ contact
-            comp["mj"] += float(hyper["interactionEnergy"][i, j])
+        # MJ contact
+        comp["mj"] += float(hyper["interactionEnergy"][i, j])
 
-            # Distance / locality penalties
-            dij = np.linalg.norm(delta_vec(i, j)) ** 2
-            dir_ = np.linalg.norm(delta_vec(i, j - 1)) ** 2 if j - 1 > i else 0.0
-            dmj = np.linalg.norm(delta_vec(i + 1, j)) ** 2 if j > i + 1 else 0.0
+        # Fix 2+3: vectorised delta_vec; reuse dv_ij norm for dir2
+        dv_ij = _delta_vec_fast(turns_arr, i, j)
+        dij   = np.dot(dv_ij, dv_ij)
 
-            comp["distance"] += lamDis * (dij - 1.0)
-            comp["locality"] += lamLoc * (2.0 - dir_)
-            comp["locality"] += lamLoc * (2.0 - dmj)
+        if j - 1 > i:
+            dv_ir  = _delta_vec_fast(turns_arr, i, j - 1)
+            dir_sq = np.dot(dv_ir, dv_ir)
+        else:
+            dir_sq = 0.0
 
-            if i - 1 >= 0:
-                dmj2 = np.linalg.norm(delta_vec(i - 1, j)) ** 2
-                comp["locality"] += lamLoc * (2.0 - dmj2)
-            if j + 1 <= N - 1:
-                dir2 = np.linalg.norm(delta_vec(i, j)) ** 2
-                comp["locality"] += lamLoc * (2.0 - dir2)
+        if j > i + 1:
+            dv_mj  = _delta_vec_fast(turns_arr, i + 1, j)
+            dmj_sq = np.dot(dv_mj, dv_mj)
+        else:
+            dmj_sq = 0.0
+
+        comp["distance"] += lamDis * (dij - 1.0)
+        comp["locality"] += lamLoc * (2.0 - dir_sq)
+        comp["locality"] += lamLoc * (2.0 - dmj_sq)
+
+        if i - 1 >= 0:
+            dv_m1 = _delta_vec_fast(turns_arr, i - 1, j)
+            comp["locality"] += lamLoc * (2.0 - np.dot(dv_m1, dv_m1))
+        if j + 1 <= N - 1:
+            comp["locality"] += lamLoc * (2.0 - dij)  # Fix 3: reuse dij
 
     total = comp["backbone"] + comp["mj"] + comp["distance"] + comp["locality"]
     return comp, float(total)
@@ -659,6 +815,10 @@ def main():
         "numQubitsInteraction": num_q_int,
         "interactionEnergy": build_mj_interactions(seq),
         "numShots": int(num_shots),
+        # Fix 1: pre-compiled fill closure — avoids repeated list comprehension in hot loops
+        "_fill_fn": _make_fill_fn(turn2qubit),
+        # Fix 8: pre-computed interaction pair list — shared across all energy evaluations
+        "_pairs": _interaction_pairs(len(seq)),
     }
 
     total_qubits = num_q_cfg + num_q_int + 1
