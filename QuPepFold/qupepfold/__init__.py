@@ -13,7 +13,13 @@ from .qupepfold import (
     check_gpu_available,
     get_simulator,
     USE_GPU_DEFAULT,
+    # v0.9.0 performance helpers
+    clear_energy_cache,
+    _make_fill_fn,
+    _interaction_pairs,
 )
+
+__version__ = "0.9.0"
 
 __all__ = [
     "generate_turn2qubit",
@@ -30,4 +36,9 @@ __all__ = [
     "check_gpu_available",
     "get_simulator",
     "USE_GPU_DEFAULT",
+    # v0.9.0 performance helpers
+    "clear_energy_cache",
+    "_make_fill_fn",
+    "_interaction_pairs",
+    "__version__",
 ]

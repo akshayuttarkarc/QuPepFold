@@ -13,3 +13,7 @@ qupepfold.egg-info/entry_points.txt
 qupepfold.egg-info/requires.txt
 qupepfold.egg-info/top_level.txt
 scripts/qupepfold
+tests/test_encoding.py
+tests/test_fragment_energy.py
+tests/test_pipeline_smoke.py
+tests/test_stitching.py
