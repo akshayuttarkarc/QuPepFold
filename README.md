@@ -1,4 +1,5 @@
 [![Qiskit Ecosystem](https://qisk.it/e-ab89baa7)](https://qisk.it/e)
+![Static Badge](https://img.shields.io/badge/Publication-PLoS_One-brightgreen?style=flat-square&logo=pubmed&labelColor=purple)
 ![Static Badge](https://img.shields.io/badge/Platform-Linux_%7C_MacOS_%7C_Windows-purple?style=flat&labelColor=blue)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/qupepfold?period=total&units=INTERNATIONAL_SYSTEM&left_color=GRAY&right_color=BRIGHTGREEN&left_text=Total+Downloads)](https://pepy.tech/projects/qupepfold)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/qupepfold?period=monthly&units=NONE&left_color=GRAY&right_color=BRIGHTGREEN&left_text=Last+Month+Downloads)](https://pepy.tech/projects/qupepfold)
@@ -81,8 +82,28 @@ pip3 uninstall qupepfold
 3. A. Uttarkar and V. Niranjan, "Quantum Enabled Protein Folding of Disordered Regions in Ubiquitin C Via Error Mitigated VQE Benchmarked on Tensor Network Simulator and Aria 1," *IEEE Transactions on Molecular, Biological, and Multi-Scale Communications*, doi: 10.1109/TMBMC.2025.3600516. https://ieeexplore.ieee.org/document/11130538
 4. A. Uttarkar, A. S. Setlur and V. Niranjan, "T-Gate Enabled Fault-Tolerant Ansatz Circuit Design for Variational Quantum Algorithms in Peptide Folding on Aria-1," *2024 Global AI Summit*, pp. 1271-1276, doi: 10.1109/GlobalAISummit62156.2024.10947993. https://ieeexplore.ieee.org/document/10947993
 5. Rutwik S, A. Uttarkar, A. S. Setlur, A. B. H and V. Niranjan, "Exploring VQE for Ground State Energy Calculations of Small Molecules With Higher Bond Orders," *2024 Global AI Summit*, pp. 1182-1187, doi: 10.1109/GlobalAISummit62156.2024.10947806. https://ieeexplore.ieee.org/document/10947806
+   
 
-### 🚀 Future Version Update: Scalability for larger peptides
+---
 
+## What's New in v0.9.0 — Performance & Correctness
 
+v0.9.0 is a focused engineering release over v0.8.0. No algorithm or output format changes — the same CVaR-VQE method, same Hamiltonian, same PDB schema — but the same runs now complete significantly faster and without risk of RAM exhaustion on larger inputs.
 
+### ⚡ Performance Improvements
+
+| # | Where | What changed | Impact |
+|---|-------|-------------|--------|
+| 1 | `fill_config_bits` hot path | Pre-compiled numpy closure (`_make_fill_fn`) replaces per-call list comprehension | Eliminates O(N) string alloc × millions of calls |
+| 2 | `delta_vec` inner loop | Vectorised with a single `np.arange` + broadcasting instead of 4× `np.array` + 4× `np.arange` per call | ~4× fewer array allocations per interaction |
+| 3 | Interaction energy loop | `delta_vec(i,j)` result reused for the `dir2` term instead of being recomputed | Eliminates one redundant vector call per active pair |
+| 4 | `exact_hamiltonian` | Module-level bounded LRU cache (`_BoundedCache`, 16 384 entries) — identical bitstrings computed only once per session | ~4 000 CVaR evaluations × ~100 states → cache hits after first pass |
+| 5 | `build_mj_interactions` | 20×20 MJ matrix generated once and cached; subsequent calls slice the pre-built matrix | Eliminates RNG + matrix construction on every call |
+| 6 | `cvar_objective` | `np.fromiter` avoids intermediate list; `np.searchsorted` replaces `count_nonzero`; pre-allocated weights array replaces `.tolist()` + append | Tighter inner loop for 4 000+ CVaR evaluations per run |
+| 7 | `statevector_fold_probs` | Chunked numpy bit-extraction (8 192 rows/chunk) replaces Python loop over all 2^Q basis states | O(2^Q × Q) Python loop → O(2^Q / 8192 × M) numpy ops |
+| 8 | Interaction pairs | `_interaction_pairs(N)` pre-computes the `(i,j)` list once; stored in `hyper["_pairs"]` | Eliminates repeated nested-loop overhead per bitstring |
+| 9 | PDB writer | `io.StringIO` buffer replaces list-of-strings + final join | Fewer intermediate string allocations during PDB export |
+
+---
+
+### Future Version Update: Scalability for larger peptides
