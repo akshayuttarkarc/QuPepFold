@@ -2,6 +2,7 @@ import os
 import io
 import math
 import csv
+import collections
 import numpy as np
 import matplotlib.pyplot as plt
 from typing import Dict, Tuple, List
@@ -9,13 +10,50 @@ from scipy.optimize import minimize
 
 # ── Module-level caches (Fixes 4, 5) ────────────────────────────────────────
 _MJ_FULL: "np.ndarray | None" = None        # Fix 5: 20×20 MJ singleton
-_energy_cache: Dict[Tuple, float] = {}      # Fix 4: bitstring → energy cache
+
+_ENERGY_CACHE_MAXSIZE = 16_384              # Fix 4-B: max unique bitstrings cached
+
+
+class _BoundedCache:
+    """Bounded LRU cache backed by collections.OrderedDict.
+
+    Evicts the least-recently-used entry when maxsize is exceeded, preventing
+    unbounded memory growth during long or repeated optimisation runs.
+    """
+    __slots__ = ("_d", "_maxsize")
+
+    def __init__(self, maxsize: int) -> None:
+        self._d: collections.OrderedDict = collections.OrderedDict()
+        self._maxsize = maxsize
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._d
+
+    def __getitem__(self, key):
+        self._d.move_to_end(key)
+        return self._d[key]
+
+    def __setitem__(self, key, value) -> None:
+        if key in self._d:
+            self._d.move_to_end(key)
+        else:
+            if len(self._d) >= self._maxsize:
+                self._d.popitem(last=False)  # evict LRU
+        self._d[key] = value
+
+    def clear(self) -> None:
+        self._d.clear()
+
+    def __len__(self) -> int:
+        return len(self._d)
+
+
+_energy_cache: _BoundedCache = _BoundedCache(_ENERGY_CACHE_MAXSIZE)
 
 
 def clear_energy_cache() -> None:
     """Clear the per-bitstring energy cache (call between independent runs)."""
-    global _energy_cache
-    _energy_cache = {}
+    _energy_cache.clear()
 
 
 def _make_fill_fn(turn2qubit: str):
@@ -367,9 +405,10 @@ def build_scalable_ansatz(parameters: np.ndarray, hyper: Dict, measure: bool = F
 def statevector_fold_probs(qc: QuantumCircuit, hyper: Dict, use_gpu: bool = False) -> Dict[str, float]:
     """Exact probabilities for measured qubits (cfg+int), ancilla excluded.
 
-    Fix 7: Replaces the Python loop over all 2^Q basis states with vectorised
-    numpy operations, reducing cost from O(2^Q × Q) string ops to a single
-    matrix multiply + np.add.at scatter.
+    Fix 7 (revised): Processes basis states in fixed-size chunks so peak
+    auxiliary RAM stays at O(CHUNK × M × 8) bytes (~1.5 MB) regardless of Q.
+    The previous single-slab approach allocated a (2^Q × Q) int64 matrix
+    which reaches ~1.5 GB for Q=23 and can cause OOM on larger inputs.
 
     Args:
         qc: Quantum circuit to simulate.
@@ -384,28 +423,30 @@ def statevector_fold_probs(qc: QuantumCircuit, hyper: Dict, use_gpu: bool = Fals
     M = len(measured_idx)
 
     if use_gpu:
-        # GPU-accelerated simulation via AerSimulator
         probs_arr = _statevector_probs_gpu(qc)
     else:
-        # CPU simulation via Statevector
         sv = Statevector.from_instruction(qc)
         probs_arr = np.abs(sv.data) ** 2
 
-    # Fix 7: vectorised marginalisation over measured qubits
-    # bits[i, k] = (i >> k) & 1  (little-endian bit k of basis state i)
-    all_i = np.arange(2**Q, dtype=np.int64)
-    bits  = ((all_i[:, None] >> np.arange(Q, dtype=np.int64)[None, :]) & 1)  # (2^Q, Q)
-
-    # Marginal index as a big-endian integer over measured_idx
-    powers  = (2 ** np.arange(M - 1, -1, -1, dtype=np.int64))       # [2^(M-1), ..., 1]
-    marg_i  = (bits[:, measured_idx] * powers).sum(axis=1)           # (2^Q,)
-
+    # Fix 7 (P1 OOM fix): chunked bit extraction.
+    # Peak extra allocation = CHUNK × M × 8 bytes ≈ 1.5 MB (vs ~1.5 GB slab).
+    CHUNK = 8192
+    measured_arr = np.array(measured_idx, dtype=np.int64)           # (M,)
+    powers = 2 ** np.arange(M - 1, -1, -1, dtype=np.int64)         # big-endian weights
     out_arr = np.zeros(2**M, dtype=float)
-    np.add.at(out_arr, marg_i, probs_arr)
 
-    # Return only non-zero entries
+    for start in range(0, 2**Q, CHUNK):
+        end = min(start + CHUNK, 2**Q)
+        p_chunk = probs_arr[start:end]
+        if not np.any(p_chunk):                                      # skip zero-prob chunks
+            continue
+        i_chunk = np.arange(start, end, dtype=np.int64)             # (chunk,)
+        # Extract bits at measured positions: (chunk, M) matrix, bounded in size
+        marg = ((i_chunk[:, None] >> measured_arr[None, :]) & 1).dot(powers)
+        np.add.at(out_arr, marg, p_chunk)
+
     nz = np.nonzero(out_arr)[0]
-    return {format(int(idx), f"0{M}b"): float(out_arr[idx]) for idx in nz}
+    return {format(int(i), f"0{M}b"): float(out_arr[i]) for i in nz}
 
 
 def _statevector_probs_gpu(qc: QuantumCircuit) -> np.ndarray:
