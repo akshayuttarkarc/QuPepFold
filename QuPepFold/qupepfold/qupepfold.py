@@ -432,7 +432,7 @@ def statevector_fold_probs(qc: QuantumCircuit, hyper: Dict, use_gpu: bool = Fals
     # Peak extra allocation = CHUNK × M × 8 bytes ≈ 1.5 MB (vs ~1.5 GB slab).
     CHUNK = 8192
     measured_arr = np.array(measured_idx, dtype=np.int64)           # (M,)
-    powers = 2 ** np.arange(M - 1, -1, -1, dtype=np.int64)         # big-endian weights
+    powers = 2 ** np.arange(M, dtype=np.int64)                      # little-endian: bit measured_idx[m] → weight 2^m
     out_arr = np.zeros(2**M, dtype=float)
 
     for start in range(0, 2**Q, CHUNK):
