@@ -145,7 +145,7 @@ Quantum backend:
   --backend TEXT      aer (default) | runtime
   --shots INT         Shots per circuit  [default: 2048]
   --ibm-token TEXT    IBM Quantum API token (runtime only)
-  --ibm-backend TEXT  IBM backend name  [default: ibm_sherbrooke]
+  --ibm-backend TEXT  IBM backend name  [default: ibm_fez]
 
 Optimisation:
   --sa-steps INT      SA steps per restart  [default: 5000]
