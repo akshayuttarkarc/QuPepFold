@@ -40,7 +40,7 @@ Sequence (amino acids)
        │
        ▼
 ┌─────────────────────────────────────────────┐
-│  Stage 1  │  Global Simulated Annealing      │  ← lattice model, SA/PT
+│  Stage 1  │  Global Simulated Annealing      │  ← tetrahedral model, SA/PT
 │           │  (3 restarts, best energy kept)  │
 ├─────────────────────────────────────────────┤
 │  Stage 2  │  Fragment Generation             │  ← sliding window, 7-aa frags
@@ -89,9 +89,7 @@ pip install -e .                # editable install
 | scipy | ≥ 1.9 |
 | pyyaml | ≥ 6.0 |
 
-**Optional — IBM Quantum Runtime:**
-```bash
-pip install qupepfold[ibm]       # adds qiskit-ibm-runtime ≥ 0.20
+
 ```
 
 ---
