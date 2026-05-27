@@ -1,0 +1,132 @@
+# ============================================================
+# QuPepFold — root .gitignore
+# ============================================================
+
+# ---- macOS ----
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+Thumbs.db
+ehthumbs.db
+
+# ---- Python build artefacts ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+*.egg-link
+MANIFEST
+
+# ---- Distribution / packaging ----
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+wheels/
+share/python-wheels/
+sdist/
+*.whl
+*.tar.gz
+
+# ---- Virtual environments ----
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# ---- Editable installs ----
+*.editable
+src/*.egg-info/
+QuPepFold/src/*.egg-info/
+
+# ---- Test & coverage artefacts ----
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+pytest_cache/
+
+# ---- Jupyter / IPython ----
+.ipynb_checkpoints
+*.ipynb
+profile_default/
+ipython_config.py
+
+# ---- Type checkers / linters ----
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# ---- IDE settings ----
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ---- QuPepFold run outputs (never commit fold results) ----
+qupepfold_output/
+results/
+output/
+fold_output*/
+fold-test*/
+*.pdb
+*.cif
+*.csv
+*.png
+*.zip
+pdb3d/
+run_metrics.json
+report.json
+output_summary.txt
+fragment_candidates.csv
+sa_trace.csv
+mj_matrix.csv
+fragment_energies.png
+backbone.pdb
+
+# ---- Keep pyproject.toml (exception for *.toml) ----
+!pyproject.toml
+
+# ---- IBM Quantum credentials — NEVER commit ----
+.env
+*.token
+ibm_credentials.json
+qiskit-ibm.json
+*.secret
+*.key
+secrets/
+
+# ---- Logs ----
+*.log
+terminal_output.txt
+
+# ---- Docs builds ----
+docs/_build/
+docs/api/
+/site
+
+# ---- Draft documents (working copies) ----
+Draft*.docx
+Draft*.pdf
+*.docx
+
+# ---- Misc ----
+manifest.json
+/tmp/
