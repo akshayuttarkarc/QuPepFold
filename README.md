@@ -8,7 +8,7 @@
 
 ---
 
-# QuPepFold v1.3.1 — QA-VQE Branch
+# QuPepFold v1.3.1
 
 **QuPepFold** is a quantum-classical hybrid peptide folding toolkit built on [Qiskit](https://qiskit.org/). It combines simulated annealing on lattice models, quantum VQE fragment refinement (via `SamplerV2`), and dynamic-programming stitching to predict 3D backbone conformations — then exports standards-compliant PDB files with full secondary structure annotation.
 
