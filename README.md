@@ -12,21 +12,16 @@
 
 **QuPepFold** is a quantum-classical hybrid peptide folding toolkit built on [Qiskit](https://qiskit.org/). It combines simulated annealing on lattice models, quantum VQE fragment refinement (via `SamplerV2`), and dynamic-programming stitching to predict 3D backbone conformations — then exports standards-compliant PDB files with full secondary structure annotation.
 
-> **Branch: `QA-VQE`** — This branch introduces a fully refactored 7-stage hybrid pipeline with major correctness, serialisation, and visualisation fixes over the previous monolithic design.
-
 ---
 
 ## What's New in v1.3.1 (QA-VQE)
 
 | # | Change | Details |
 |---|--------|---------|
-| 🔬 | **Hybrid 7-stage pipeline** | SA global search → fragment generation → energy tables → VQE refinement (SPSA) → DP stitching → 3D backbone → report |
-| ⚛️ | **VQE via `SamplerV2`** | Uses Qiskit's modern `SamplerV2` API with SPSA optimiser and CVaR loss |
-| 🧩 | **Overlap-aware DP stitching** | Dynamic-programming stitching with 2-turn overlap matching; falls back to best global SA result |
-| 🏗️ | **Correct secondary structure in PDB** | HELIX/SHEET records derived directly from the optimizer's turn codes — renders correctly in PyMOL, ChimeraX, VMD |
-| 📦 | **Serialisation fix** | `numpy.float32` values no longer crash `json.dump` in `run_metrics.json` |
-| 🧹 | **OpenMM removed** | Relaxation stage removed; pipeline runs cleanly without any optional native dependencies |
-| 🛡️ | **Type safety** | All Pyrefly `bad-argument-type` errors resolved (`dataclasses.replace`, `str | None` guards) |
+| 1 | **Hybrid 7-stage pipeline** | SA global search → fragment generation → energy tables → VQE refinement (SPSA) → DP stitching → 3D backbone → report |
+| 2 | **VQE via `SamplerV2`** | Uses Qiskit's modern `SamplerV2` API with SPSA optimiser and CVaR loss |
+| 3 | **Overlap-aware DP stitching** | Dynamic-programming stitching with 2-turn overlap matching; falls back to best global SA result |
+| 4 | **Correct secondary structure in PDB** | HELIX/SHEET records derived directly from the optimizer's turn codes — renders correctly in PyMOL, ChimeraX, VMD |
 
 ---
 
@@ -205,35 +200,24 @@ Each 2-bit turn code is encoded in the quantum bitstring. The final bitstring (b
 
 ---
 
-## Published Research
+### 📚 Publications
 
-This tool is based on peer-reviewed quantum computing research:
+**★ Primary citation for QuPepFold (v0.8.0):**
 
-1. Uttarkar, A., Niranjan, V. (2024). *Quantum synergy in peptide folding: A comparative study of CVaR-VQE and molecular dynamics simulation.* **International Journal of Biological Macromolecules**, 273, 133033. https://doi.org/10.1016/j.ijbiomac.2024.133033
+> Uttarkar A, Niranjan V, Saxena A, Kumar V (2026).  
+> QuPepFold: A python package for hybrid quantum-classical protein folding simulations with CVaR-optimized VQE.  
+> *PLoS One* **21**(2): e0342012.  
+> https://doi.org/10.1371/journal.pone.0342012
 
-2. Uttarkar, A., Niranjan, V. (2024). *A comparative insight into peptide folding with quantum CVaR-VQE algorithm, MD simulations and structural alphabet analysis.* **Quantum Information Processing**, 23, 48. https://doi.org/10.1007/s11128-024-04261-9
+**Related quantum protein folding works from our group:**
 
-3. Uttarkar, A., Setlur, A. S., Niranjan, V. (2024). *T-Gate Enabled Fault-Tolerant Ansatz Circuit Design for VQE in Peptide Folding on Aria-1.* **Global AI Summit 2024**, IEEE. doi:10.1109/GlobalAISummit62156.2024.10947993
+1. Akshay Uttarkar, Vidya Niranjan (2024). Quantum synergy in peptide folding: A comparative study of CVaR-variational quantum eigensolver and molecular dynamics simulation. *International Journal of Biological Macromolecules*. Volume 273, Part 1, 133033. https://doi.org/10.1016/j.ijbiomac.2024.133033
+2. Uttarkar, A., Niranjan, V. (2024). A comparative insight into peptide folding with quantum CVaR-VQE algorithm, MD simulations and structural alphabet analysis. *Quantum Inf Process* 23, 48. https://doi.org/10.1007/s11128-024-04261-9
+3. A. Uttarkar and V. Niranjan, "Quantum Enabled Protein Folding of Disordered Regions in Ubiquitin C Via Error Mitigated VQE Benchmarked on Tensor Network Simulator and Aria 1," *IEEE Transactions on Molecular, Biological, and Multi-Scale Communications*, doi: 10.1109/TMBMC.2025.3600516. https://ieeexplore.ieee.org/document/11130538
+4. A. Uttarkar, A. S. Setlur and V. Niranjan, "T-Gate Enabled Fault-Tolerant Ansatz Circuit Design for Variational Quantum Algorithms in Peptide Folding on Aria-1," *2024 Global AI Summit*, pp. 1271-1276, doi: 10.1109/GlobalAISummit62156.2024.10947993. https://ieeexplore.ieee.org/document/10947993
+5. Rutwik S, A. Uttarkar, A. S. Setlur, A. B. H and V. Niranjan, "Exploring VQE for Ground State Energy Calculations of Small Molecules With Higher Bond Orders," *2024 Global AI Summit*, pp. 1182-1187, doi: 10.1109/GlobalAISummit62156.2024.10947806. https://ieeexplore.ieee.org/document/10947806
 
-4. Uttarkar, A., Niranjan, V. (2025). *Quantum Enabled Protein Folding of Disordered Regions in Ubiquitin C Via Error Mitigated VQE Benchmarked on Tensor Network Simulator and Aria 1.* **IEEE Transactions on Molecular, Biological, and Multi-Scale Communications**. doi:10.1109/TMBMC.2025.3600516
 
----
-
-## Roadmap
-
-- [ ] **GPU acceleration** — integrate `cuStateVec` / `qiskit-aer-gpu` for 10–50× simulation speedup
-- [ ] **Parallel fragment VQE** — run all 15 fragment circuits concurrently
-- [ ] **Fault-tolerant circuit modes** — T-gate based ansatz for error-resilient execution
-- [ ] **Extended sequences** — support > 100 residues via hierarchical fragment merging
-- [ ] **PyMOL plugin** — one-click fold-and-visualise from within PyMOL
-
----
-
-## Authors
-
-- **Akshay Uttarkar** — [akshayuttarkar@gmail.com](mailto:akshayuttarkar@gmail.com)
-- **Vinay Kumar**
-- **Vidya Niranjan**
 
 ---
 
