@@ -1,0 +1,160 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# IDE settings
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# QuPepFold specific
+qupepfold_output/
+results/
+output/
+*.pdb
+*.json
+!pyproject.toml
+*.csv
+*.png
+*.zip
+pdb3d/
+
+# Test outputs and test folders
+/tmp/
+test_*/
+tests/
+test/
+
+# IBM Quantum credentials (IMPORTANT - never commit!)
+.env
+*.token
+ibm_credentials.json
+qiskit-ibm.json
+
+# Logs
+*.log
+terminal_output.txt
+output_summary.txt
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Thumbnails
+Thumbs.db
+ehthumbs.db
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Editable installs
+*.editable
+src/*.egg-info/
+
+# Documentation builds
+docs/_build/
+docs/api/
+
+# Secrets and tokens
+secrets/
+*.secret
+*.key

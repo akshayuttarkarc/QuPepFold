@@ -7,14 +7,6 @@
 ![Python](https://img.shields.io/pypi/pyversions/qupepfold)
 
 ---
-**★ Primary citation for QuPepFold (v0.8.0):**
-
-> Uttarkar A, Niranjan V, Saxena A, Kumar V (2026).  
-> QuPepFold: A python package for hybrid quantum-classical protein folding simulations with CVaR-optimized VQE.  
-> *PLoS One* **21**(2): e0342012.  
-> https://doi.org/10.1371/journal.pone.0342012
-
----
 
 # QuPepFold v1.3.2 — Production Release
 

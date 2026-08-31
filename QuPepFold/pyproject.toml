@@ -1,28 +1,71 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "qupepfold"
-version = "0.9.0"
-description = "QuPepFold: Quantum peptide folding simulations with Qiskit"
+version = "1.3.2"
+description = "QuPepFold: Quantum-classical hybrid peptide folding simulations with Qiskit"
 readme = "README.md"
-requires-python = ">=3.7"
-dependencies = [
-  "qiskit>=0.39",
-  "qiskit-aer",
-  "numpy",
-  "matplotlib",
-  "scipy",
-]
+requires-python = ">=3.9"
+license = { text = "MIT" }
 authors = [
-  { name="Akshay Uttarkar", email="akshayuttarkar@gmail.com" },
+  { name = "Akshay Uttarkar",  email = "akshayuttarkar@gmail.com" },
+  { name = "Vinay Kumar" },
+  { name = "Vidya Niranjan" },
 ]
-license = { text="MIT" }
+keywords = ["quantum", "protein", "folding", "VQE", "qiskit"]
 classifiers = [
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
   "Topic :: Scientific/Engineering :: Quantum Computing",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
 ]
+dependencies = [
+  "qiskit>=1.0,<3",
+  "qiskit-aer>=0.14",
+  "numpy>=1.22",
+  "matplotlib>=3.5",
+  "scipy>=1.9",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+ibm = ["qiskit-ibm-runtime>=0.20"]
+dev = [
+  "pytest>=7.0",
+  "pytest-cov",
+  "black",
+  "ruff",
+  "mypy",
+]
+
+[project.urls]
+Homepage = "https://github.com/akshayuttarkarc/QuPepFold"
+Bug-Tracker = "https://github.com/akshayuttarkarc/QuPepFold/issues"
 
 [project.scripts]
 qupepfold = "qupepfold.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.mypy]
+python_version = "3.9"
+ignore_missing_imports = true
