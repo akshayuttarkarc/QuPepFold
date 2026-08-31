@@ -110,7 +110,7 @@ qupepfold fold \
   --seq ACDEFGHIKLMNPQRSTVWY \
   --backend runtime \
   --ibm-token YOUR_TOKEN \
-  --ibm-backend ibm_sherbrooke \
+  --ibm-backend ibm_fez \
   --shots 4096 \
   --out ./results
 ```
