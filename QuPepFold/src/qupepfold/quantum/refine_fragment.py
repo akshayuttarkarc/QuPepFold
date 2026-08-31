@@ -206,10 +206,10 @@ def refine_fragment(
         by="probability",
     )
     
-    # ALSO get the best candidates directly from context table
-    table_best = energy_table_to_use.get_best_candidates(top_k=config.top_k_candidates)
-    
-    # Merge: Warm-start + VQE sampled + Table best
+    # Candidate selection intentionally excludes the exact best states from the
+    # exhaustively enumerated energy table.  Injecting those states here would
+    # allow them to displace every sampled state during the energy ranking below,
+    # making the refinement result independent of the VQE distribution.
     unique_bits = set()
     candidates = []
     
@@ -245,14 +245,7 @@ def refine_fragment(
                 },
             ))
     
-    # Add table-best candidates
-    for cand in table_best:
-        if cand.bits not in unique_bits:
-            unique_bits.add(cand.bits)
-            cand.meta["source"] = "energy_table"
-            candidates.append(cand)
-    
-    # Sort all by energy and return top-M
+    # Rank only the warm start and states actually observed from the VQE sampler.
     candidates.sort(key=lambda c: c.energy)
     return candidates[:config.top_m_by_energy]
 
