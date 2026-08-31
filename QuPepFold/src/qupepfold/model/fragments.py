@@ -82,15 +82,22 @@ def generate_fragments(
     while start < n:
         end = min(start + frag_len, n)
         
+        # If previous fragment already reached the end of sequence, stop
+        if fragments and fragments[-1].end_res >= n:
+            break
+        
         # Determine overlap flags
         is_first = (frag_idx == 0)
-        is_last = (end >= n)
-        
         overlap_left = 0 if is_first else overlap_turns
         
-        # Check if there will be a next fragment
-        next_start = start + stride
-        has_next = (next_start < n) and (next_start + frag_len <= n + overlap_residues)
+        # Check if fragment has free degrees of freedom (turns not pinned by left overlap)
+        n_turns = end - start - 1
+        if not is_first and n_turns <= overlap_left:
+            # Redundant fragment with 0 free bits - stop
+            break
+        
+        # Check if there will be a next fragment covering beyond this one
+        has_next = (end < n)
         overlap_right = overlap_turns if has_next else 0
         
         fragments.append(FragmentSpec(
@@ -101,25 +108,11 @@ def generate_fragments(
             overlap_right_turns=overlap_right,
         ))
         
+        if end >= n:
+            break
+            
         start += stride
         frag_idx += 1
-        
-        # Handle final fragment covering remaining residues
-        if start < n and start + frag_len > n:
-            # Last fragment might be shorter or we extend to cover
-            end = n
-            if end - start < 3:  # Too short for meaningful fragment
-                # Extend previous fragment instead
-                break
-            
-            fragments.append(FragmentSpec(
-                start_res=start,
-                end_res=end,
-                sequence=sequence[start:end],
-                overlap_left_turns=overlap_turns,
-                overlap_right_turns=0,
-            ))
-            break
     
     return fragments
 

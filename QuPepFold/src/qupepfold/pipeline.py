@@ -54,6 +54,8 @@ def run_fold(
     config: FoldConfig,
     output_dir: str,
     verbose: bool = True,
+    generate_csv: bool = True,
+    generate_plots: bool = True,
 ) -> FoldResult:
     """Run the complete folding pipeline.
     
@@ -71,6 +73,8 @@ def run_fold(
         config: FoldConfig with all parameters.
         output_dir: Directory for output files.
         verbose: Whether to print progress.
+        generate_csv: Whether to write CSV-style auxiliary outputs.
+        generate_plots: Whether to write plot images.
         
     Returns:
         FoldResult with all outputs.
@@ -221,8 +225,9 @@ def run_fold(
         vqe_timer.__exit__(None, None, None)
     run_metrics.add_stage_timing("vqe_refinement", vqe_timer.elapsed)
     run_metrics.n_qubits_per_fragment = fragments[0].n_bits if fragments else 0
-    run_metrics.total_shots = config.shots * 2 * config.spsa_iterations * len(fragments)
-    run_metrics.total_circuit_evaluations = 2 * config.spsa_iterations * len(fragments) + len(fragments)
+    shots_per_frag = (2 * config.spsa_iterations + 1) * config.shots + (2 * config.shots)
+    run_metrics.total_shots = shots_per_frag * len(fragments)
+    run_metrics.total_circuit_evaluations = (2 * config.spsa_iterations + 2) * len(fragments)
     
     if verbose:
         total_cands = sum(len(c) for c in fragment_candidates)
@@ -233,7 +238,8 @@ def run_fold(
         print("\n[Stage 4b/8] Comparing All VQE Candidates")
         print("-" * 40)
     
-    from .model.energy_fragment import compute_chain_energy
+    from .model.energy_fragment import compute_chain_energy, compute_backbone_penalty
+    from .model.lattice import contacts, count_overlaps
     
     best_vqe_bits = None
     best_vqe_energy = float('inf')
@@ -375,6 +381,22 @@ def run_fold(
         print(f"  Built {len(atoms)} atoms")
         print(f"  ✓ Wrote: {pdb_path}")
     
+    # Compute energy breakdown for best state
+    pos_final = trace_positions(turns)
+    contact_pairs_final = contacts(
+        pos_final,
+        min_sep=config.contact_min_sep,
+        cutoff=config.contact_cutoff,
+    )
+    e_contact_final = sum(mj_matrix[i, j] for i, j in contact_pairs_final)
+    e_back_final = compute_backbone_penalty(turns, getattr(config, 'lam_back', 0.2))
+    e_overlap_final = config.overlap_penalty * count_overlaps(pos_final)
+    energy_breakdown = {
+        "contact": float(e_contact_final),
+        "backbone": float(e_back_final),
+        "overlap": float(e_overlap_final),
+    }
+    
     # Build provenance, metrics, and result
     provenance = get_provenance(
         backend_name=config.ibm_backend if config.backend == "runtime" else "aer",
@@ -386,8 +408,8 @@ def run_fold(
         "shots_per_circuit": config.shots,
         "spsa_iterations": config.spsa_iterations,
         "n_fragments": len(fragments),
-        "total_shots": config.shots * 2 * config.spsa_iterations * len(fragments),
-        "total_circuit_evaluations": 2 * config.spsa_iterations * len(fragments) + len(fragments),
+        "total_shots": shots_per_frag * len(fragments),
+        "total_circuit_evaluations": (2 * config.spsa_iterations + 2) * len(fragments),
     }
 
     relaxed_pdb_path = None  # Structure relaxation removed from pipeline
@@ -397,11 +419,13 @@ def run_fold(
         global_bits=global_bits,
         global_energy=global_energy,
         fragment_candidates=fragment_candidates,
-        stitched_bits=final_bits,
-        stitched_energy=final_energy,
+        stitched_bits=stitched_bits,
+        stitched_energy=stitched_energy,
         pdb_path=pdb_path,
         relaxed_pdb_path=relaxed_pdb_path,
         provenance=provenance,
+        selected_candidates=selected,
+        energy_breakdown=energy_breakdown,
         quantum_metrics=quantum_metrics,
         win_source="global_sa" if used_global else "stitched",
         convergence_trace=sa_energies,
@@ -431,16 +455,19 @@ def run_fold(
             output_dir=output_dir,
             fragments=fragments,
             mj_matrix=mj_matrix,
-            sa_energies=[global_energy],  # SA restart energies
+            sa_energies=sa_energies,  # Pass full SA restart energies list
+            include_csv=generate_csv,
             verbose=verbose,
         )
         
         # Generate all plots
-        plot_files = generate_all_plots(
-            result=result,
-            output_dir=output_dir,
-            energy_components=result.energy_breakdown,
-        )
+        plot_files = []
+        if generate_plots:
+            plot_files = generate_all_plots(
+                result=result,
+                output_dir=output_dir,
+                energy_components=result.energy_breakdown,
+            )
         
         if verbose and plot_files:
             for p in plot_files:

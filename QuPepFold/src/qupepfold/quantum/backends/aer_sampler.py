@@ -39,6 +39,7 @@ class AerSamplerBackend(SamplerBackend):
         """
         self.use_gpu = use_gpu
         self.noise_model = noise_model
+        self._circuit_cache: Dict[int, QuantumCircuit] = {}
         
         # Configure simulator
         sim_options = {}
@@ -69,22 +70,24 @@ class AerSamplerBackend(SamplerBackend):
         results = []
         
         for circuit, params in zip(circuits, param_values):
-            # Bind parameters if circuit is parameterized
-            if circuit.num_parameters > 0:
-                bound_circuit = circuit.assign_parameters(params)
+            # Check cached base circuit with measurements
+            c_key = id(circuit)
+            if c_key not in self._circuit_cache:
+                c_base = circuit.copy()
+                if c_base.num_clbits == 0:
+                    c_base.measure_all()
+                self._circuit_cache[c_key] = transpile(c_base, self._simulator)
+                
+            base_transpiled = self._circuit_cache[c_key]
+            
+            # Bind parameters
+            if base_transpiled.num_parameters > 0:
+                bound_circuit = base_transpiled.assign_parameters(params)
             else:
-                bound_circuit = circuit
+                bound_circuit = base_transpiled
             
-            # Add measurements if not present
-            if bound_circuit.num_clbits == 0:
-                bound_circuit = bound_circuit.copy()
-                bound_circuit.measure_all()
-            
-            # Transpile for simulator
-            transpiled = transpile(bound_circuit, self._simulator)
-            
-            # Run
-            job = self._simulator.run(transpiled, shots=shots)
+            # Run simulation
+            job = self._simulator.run(bound_circuit, shots=shots)
             result = job.result()
             counts = result.get_counts(0)
             

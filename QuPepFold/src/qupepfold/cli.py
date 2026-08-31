@@ -86,6 +86,8 @@ def main():
                             help="Overlap turns between fragments (default: 2)")
     pre_parser.add_argument("--protein-id", type=str, default="unknown",
                             help="Protein identifier for manifest")
+    pre_parser.add_argument("--regions", type=str, default=None,
+                            help="User-defined ranges as start:end pairs, e.g. 0:7,5:12")
     pre_parser.add_argument("--out", type=str, default="./manifest.json",
                             help="Output manifest JSON path (default: ./manifest.json)")
     pre_parser.add_argument("--quiet", action="store_true", help="Suppress output")
@@ -164,6 +166,8 @@ def _run_fold(args):
             config=config,
             output_dir=args.out,
             verbose=not args.quiet,
+            generate_csv=not args.no_csv,
+            generate_plots=not args.no_plots,
         )
         
         if not args.quiet:
@@ -172,26 +176,6 @@ def _run_fold(args):
             print(f"Global search energy: {result.global_energy:.2f}")
             print(f"Stitched energy: {result.stitched_energy:.2f}")
             print(f"Output: {result.pdb_path}")
-            
-            # Generate plots
-            if not args.no_plots:
-                try:
-                    from .io import generate_all_plots
-                    plots = generate_all_plots(result, args.out)
-                    for p in plots:
-                        print(f"Plot: {p}")
-                except Exception as e:
-                    print(f"Warning: Could not generate plots: {e}")
-            
-            # Generate CSVs
-            if not args.no_csv:
-                try:
-                    from .io import generate_all_csvs
-                    csvs = generate_all_csvs(result, args.out)
-                    for c in csvs:
-                        print(f"CSV: {c}")
-                except Exception as e:
-                    print(f"Warning: Could not generate CSVs: {e}")
             
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -219,7 +203,18 @@ def _run_preprocess(args):
         fragment_strategy=args.strategy,
     )
 
-    strategy = get_strategy(args.strategy)
+    strategy_kwargs = {}
+    if args.strategy == "user_defined":
+        if not args.regions:
+            print("Error: --regions is required with --strategy user_defined", file=sys.stderr)
+            sys.exit(1)
+        try:
+            strategy_kwargs["regions"] = _parse_regions(args.regions)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    strategy = get_strategy(args.strategy, **strategy_kwargs)
     fragments = strategy.generate(sequence, config)
 
     # Sort by priority (highest first) for display
@@ -257,6 +252,30 @@ def _read_fasta(filepath: str) -> str:
             if not line.startswith(">"):
                 seq.append(line.upper())
     return "".join(seq)
+
+
+def _parse_regions(value: str):
+    """Parse comma-separated start:end residue ranges."""
+    regions = []
+    for raw_part in value.split(","):
+        part = raw_part.strip()
+        if not part:
+            continue
+        if ":" not in part:
+            raise ValueError(f"Invalid region '{part}'. Expected start:end")
+        start_text, end_text = part.split(":", 1)
+        try:
+            start = int(start_text)
+            end = int(end_text)
+        except ValueError as exc:
+            raise ValueError(f"Invalid region '{part}'. Bounds must be integers") from exc
+        if start < 0 or end <= start:
+            raise ValueError(f"Invalid region '{part}'. Need 0 <= start < end")
+        regions.append((start, end))
+
+    if not regions:
+        raise ValueError("At least one region is required")
+    return regions
 
 
 if __name__ == "__main__":

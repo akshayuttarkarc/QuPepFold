@@ -7,7 +7,7 @@ high-variance or slow-converging fragments receive more shots.
 Total shot budget is conserved.
 """
 
-from typing import List, Dict
+from typing import List, Dict, Optional
 import numpy as np
 
 
@@ -133,5 +133,3 @@ class AdaptiveShotAllocator:
         return "\n".join(lines)
 
 
-# Allow Optional in body without importing at top (Python 3.9 compat)
-from typing import Optional

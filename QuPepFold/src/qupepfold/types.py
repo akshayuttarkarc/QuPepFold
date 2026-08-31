@@ -41,11 +41,8 @@ class FoldConfig:
     contact_min_sep: int = 2
     
     # Geometric constraint penalties
-    # CRITICAL: These must be low enough that MJ contact energy can dominate.
-    # Original VQE used control bits to selectively apply penalties; without
-    # control bits, unconditional penalties overwhelm favorable MJ contacts.
-    # MJ values typically range from -4 to +4, so penalties must be < |MJ|.
-    lam_back: float = 5.0     # Adjacent equal turns (reduced from 50)
+    # Scaled appropriately against published MJ potentials (-5.6 to -1.5 RT)
+    lam_back: float = 0.2     # Adjacent equal turns penalty (reduced so favorable MJ contacts dominate)
     lam_dis: float = 0.0      # Disabled - requires control bits for proper use
     lam_loc: float = 0.0      # Disabled - requires control bits for proper use
     
@@ -270,9 +267,19 @@ class FoldResult:
         return min(self.global_energy, self.stitched_energy)
     
     @property
+    def final_energy(self) -> float:
+        """Alias for overall best energy."""
+        return self.energy
+
+    @property
     def best_bits(self) -> str:
         """Bitstring corresponding to best energy."""
         if self.global_energy <= self.stitched_energy:
             return self.global_bits
         return self.stitched_bits
+
+    @property
+    def final_bits(self) -> str:
+        """Alias for overall best bitstring."""
+        return self.best_bits
 

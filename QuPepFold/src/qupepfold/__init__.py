@@ -7,7 +7,7 @@ A scientifically rigorous package for protein folding combining:
 - 3D backbone coordinate generation with secondary structure annotation
 """
 
-__version__ = "1.3.1"
+__version__ = "1.3.2"
 
 
 from .types import (

@@ -68,7 +68,11 @@ def compute_chain_energy(
     if include_geometric_constraints:
         lam_dis = getattr(config, 'lam_dis', DEFAULT_LAM_DIS)
         lam_loc = getattr(config, 'lam_loc', DEFAULT_LAM_LOC)
-        e_geo = compute_geometric_constraints(turns, n_residues, lam_dis, lam_loc)
+        if (lam_dis > 0 or lam_loc > 0) and contact_pairs:
+            e_geo = compute_geometric_constraints(
+                turns, n_residues, lam_dis, lam_loc,
+                positions=positions, contact_pairs=contact_pairs
+            )
     
     return e_overlap + e_contact + e_back + e_geo
 

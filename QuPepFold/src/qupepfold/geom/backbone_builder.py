@@ -5,7 +5,7 @@ Uses standard peptide geometry for bond lengths and angles.
 """
 
 import math
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Any
 import numpy as np
 
 # Standard peptide geometry (Angstroms and radians)
@@ -76,7 +76,7 @@ def _normalize(v: np.ndarray) -> np.ndarray:
 
 def _orthonormal_frame(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Build orthonormal frame from three points."""
-    cb = _normalize(b - c)
+    cb = _normalize(c - b)
     t = b - a
     n = np.cross(t, cb)
     
@@ -152,15 +152,13 @@ def build_backbone_coords(
         if i == 0:
             n_pos, ca_pos, c_pos, o_pos = n1, ca1, c1, o1
         else:
-            phi, psi = phis[i], psis[i]
-            
-            # Place N
-            n_pos = _place_atom(prev_a, prev_b, prev_c, BOND_LENGTHS["C-N"], BOND_ANGLES["CA-C-N"], OMEGA_TRANS)
-            # Place CA
-            ca_pos = _place_atom(prev_b, prev_c, n_pos, BOND_LENGTHS["N-CA"], BOND_ANGLES["C-N-CA"], phi)
-            # Place C
-            c_pos = _place_atom(prev_c, n_pos, ca_pos, BOND_LENGTHS["CA-C"], BOND_ANGLES["N-CA-C"], psi)
-            # Place O
+            # Place N (dihedral psi around CA_{i-1}-C_{i-1})
+            n_pos = _place_atom(prev_a, prev_b, prev_c, BOND_LENGTHS["C-N"], BOND_ANGLES["CA-C-N"], psis[i - 1])
+            # Place CA (dihedral omega around C_{i-1}-N_i)
+            ca_pos = _place_atom(prev_b, prev_c, n_pos, BOND_LENGTHS["N-CA"], BOND_ANGLES["C-N-CA"], OMEGA_TRANS)
+            # Place C (dihedral phi around N_i-CA_i)
+            c_pos = _place_atom(prev_c, n_pos, ca_pos, BOND_LENGTHS["CA-C"], BOND_ANGLES["N-CA-C"], phis[i])
+            # Place O (in plane with CA-C carbonyl group)
             o_pos = _place_atom(n_pos, ca_pos, c_pos, BOND_LENGTHS["C=O"], BOND_ANGLES["CA-C-O"], 0.0)
             
             prev_a, prev_b, prev_c = n_pos, ca_pos, c_pos
@@ -184,11 +182,11 @@ def build_backbone_coords(
 
 
 def _compute_cb_position(n_pos: np.ndarray, ca_pos: np.ndarray, c_pos: np.ndarray) -> np.ndarray:
-    """Compute CB position from backbone atoms."""
+    """Compute CB position from backbone atoms for L-amino acids."""
     v1 = _normalize(n_pos - ca_pos)
     v2 = _normalize(c_pos - ca_pos)
     
-    # CB is roughly opposite to the average of N-CA and C-CA vectors
+    # Bisector pointing between N and C in plane
     u = v1 + v2
     if np.linalg.norm(u) < 1e-8:
         tmp = np.array([1.0, 0.0, 0.0])
@@ -198,13 +196,14 @@ def _compute_cb_position(n_pos: np.ndarray, ca_pos: np.ndarray, c_pos: np.ndarra
     else:
         u = _normalize(u)
     
+    # Normal to N-CA-C plane
     n = np.cross(v1, v2)
     if np.linalg.norm(n) < 1e-8:
         n = np.array([0.0, 0.0, 1.0])
     n = _normalize(n)
     
-    # Tetrahedral geometry
-    dir_cb = _normalize(0.943 * u + 0.333 * n)
+    # L-amino acid tetrahedral geometry: points away from N/C (-u) with out-of-plane chiral component (+n)
+    dir_cb = _normalize(-0.577 * u + 0.816 * n)
     cb_pos = ca_pos + 1.53 * dir_cb
     
     return cb_pos
@@ -222,3 +221,42 @@ def build_from_turns(sequence: str, turns: List[int]) -> List[Dict]:
     """
     phis, psis = turns_to_dihedrals(turns, len(sequence))
     return build_backbone_coords(sequence, phis, psis)
+
+
+def check_backbone_geometry(atoms: List[Dict], clash_cutoff: float = 2.0) -> Dict[str, Any]:
+    """Validate backbone geometry: Cα-Cα distances and steric clash count.
+    
+    Args:
+        atoms: List of atom dictionaries from build_backbone_coords.
+        clash_cutoff: Distance cutoff in Angstroms for steric clash detection.
+        
+    Returns:
+        Dict with 'ca_distances', 'max_ca_error', 'n_clashes', 'worst_clash_dist'.
+    """
+    ca_atoms = [a for a in atoms if a["name"] == "CA"]
+    ca_dists = []
+    for i in range(len(ca_atoms) - 1):
+        d = float(np.linalg.norm(ca_atoms[i+1]["coords"] - ca_atoms[i]["coords"]))
+        ca_dists.append(d)
+    
+    max_ca_error = max([abs(d - 3.80) for d in ca_dists]) if ca_dists else 0.0
+    
+    # Check non-bonded atom pairs (residues >= 2 apart)
+    n_clashes = 0
+    worst_dist = float("inf")
+    n_atoms = len(atoms)
+    for i in range(n_atoms):
+        for j in range(i + 1, n_atoms):
+            if abs(atoms[i]["resid"] - atoms[j]["resid"]) >= 2:
+                dist = float(np.linalg.norm(atoms[i]["coords"] - atoms[j]["coords"]))
+                if dist < worst_dist:
+                    worst_dist = dist
+                if dist < clash_cutoff:
+                    n_clashes += 1
+                    
+    return {
+        "ca_distances": ca_dists,
+        "max_ca_error": max_ca_error,
+        "n_clashes": n_clashes,
+        "worst_clash_dist": worst_dist if worst_dist != float("inf") else None,
+    }

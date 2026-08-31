@@ -50,7 +50,7 @@ long_description = extended_description + "\n\n" + readme_md
 
 setup(
     name="qupepfold",
-    version="1.3.1",
+    version="1.3.2",
     author=", ".join(authors),
     author_email=", ".join(author_emails),
     description="QuPepFold: Quantum peptide folding simulations with Qiskit",
@@ -61,12 +61,12 @@ setup(
     package_dir={"": "src"},
     include_package_data=True,          
     install_requires=[
-        "qiskit>=0.39",
-        "qiskit-aer",
-        "numpy",
-        "matplotlib",
-        "scipy",
-        "pyyaml",
+        "qiskit>=1.0,<3",
+        "qiskit-aer>=0.14",
+        "numpy>=1.22",
+        "matplotlib>=3.5",
+        "scipy>=1.9",
+        "pyyaml>=6.0",
     ],
     entry_points={
         "console_scripts": [

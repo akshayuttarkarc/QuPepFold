@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qupepfold"
-version = "1.3.1"
+version = "1.3.2"
 description = "QuPepFold: Quantum-classical hybrid peptide folding simulations with Qiskit"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -26,7 +26,7 @@ classifiers = [
   "Operating System :: OS Independent",
 ]
 dependencies = [
-  "qiskit>=1.0",
+  "qiskit>=1.0,<3",
   "qiskit-aer>=0.14",
   "numpy>=1.22",
   "matplotlib>=3.5",

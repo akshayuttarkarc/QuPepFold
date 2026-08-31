@@ -197,8 +197,8 @@ def assign_secondary_structure(
 
 def detect_secondary_structure(
     turns: List[int],
-    min_helix_length: int = 1,
-    min_sheet_length: int = 1,
+    min_helix_length: int = 2,
+    min_sheet_length: int = 2,
 ) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int]]]:
     """Assign secondary structure from turn codes.
 
@@ -213,8 +213,8 @@ def detect_secondary_structure(
     Args:
         turns: List of turn codes (length = n_residues - 1).
         min_helix_length: Minimum number of consecutive helix turns to
-            annotate.  Default 1 annotates even single-turn helices (2 res).
-        min_sheet_length: Same for sheet strands.
+            annotate (default: 2 turns, covering >= 3 residues).
+        min_sheet_length: Same for sheet strands (default: 2 turns).
 
     Returns:
         (helix_regions, sheet_regions) as (start_res, end_res) 1-based
@@ -381,7 +381,7 @@ def write_pdb(
     if turns is not None:
         # Primary path: use turn codes directly (most reliable for lattice model)
         helices, sheets = detect_secondary_structure(
-            turns, min_helix_length=1, min_sheet_length=1
+            turns, min_helix_length=2, min_sheet_length=2
         )
     else:
         # Fallback: classify from phi angles of 3D coordinates

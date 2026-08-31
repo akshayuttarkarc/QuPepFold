@@ -71,6 +71,8 @@ def save_output_summary(
             summary_lines.append(
                 f"  Fragment {i+1}: E={cand.energy:>8.2f}  bits={cand.bits[:20]}..."
             )
+    else:
+        summary_lines.append(f"  Win Source: {result.win_source} (E={result.energy:.4f})")
     
     summary_lines.extend([
         "",
@@ -80,6 +82,8 @@ def save_output_summary(
     if result.energy_breakdown:
         for key, val in result.energy_breakdown.items():
             summary_lines.append(f"  {key.capitalize():15s}: {val:>10.4f}")
+    else:
+        summary_lines.append(f"  Total Energy   : {result.energy:>10.4f}")
     
     summary_lines.extend([
         "",
@@ -346,6 +350,7 @@ def generate_all_outputs(
     mj_matrix: Optional[np.ndarray] = None,
     cvar_traces: Optional[List[List[float]]] = None,
     sa_energies: Optional[List[float]] = None,
+    include_csv: bool = True,
     verbose: bool = True,
 ) -> Dict[str, str]:
     """Generate all comprehensive output files.
@@ -363,27 +368,27 @@ def generate_all_outputs(
     outputs["summary"] = save_output_summary(result, config, output_dir, sequence, verbose)
     
     # 2. Fragment candidates CSV
-    if result.fragment_candidates and fragments:
+    if include_csv and result.fragment_candidates and fragments:
         outputs["fragment_candidates"] = save_fragment_candidates_csv(
             result.fragment_candidates, fragments, None, output_dir, verbose
         )
     
     # 3. Energy breakdown CSV (if available)
-    if result.energy_breakdown:
+    if include_csv and result.energy_breakdown:
         outputs["energy_breakdown_csv"] = save_energy_breakdown_csv(
             result.energy_breakdown, result.best_bits, output_dir, verbose
         )
     
     # 4. SA trace
-    if sa_energies:
+    if include_csv and sa_energies:
         outputs["sa_trace"] = save_sa_trace_csv(sa_energies, output_dir, verbose)
     
     # 5. SPSA traces
-    if cvar_traces:
+    if include_csv and cvar_traces:
         outputs["spsa_traces"] = save_spsa_trace_csv(cvar_traces, output_dir, verbose)
     
     # 6. MJ matrix
-    if mj_matrix is not None:
+    if include_csv and mj_matrix is not None:
         outputs["mj_matrix"] = save_mj_matrix_csv(mj_matrix, sequence, output_dir, verbose)
     
     # 7. PDB ZIP

@@ -92,14 +92,11 @@ def stitch_fragments(
                     continue
 
                 # 2. Geometric Overlap Check (Position Validation)
-                # Reconstruct full path up to (i-1, j) + current (i, k)
-                # Optimization: Only check if penalty is reasonable so far
+                # Reconstruct path prefix to check for collisions with newly added residues
                 current_bits = _reconstruct_path_bits(
                     parent, fragment_candidates, i-1, j, fragments
                 )
                 
-                # Append current fragment (cand_k)
-                # Handle overlap bits similar to assemble_bitstring
                 bits_k = cand_k.bits
                 if overlap_bits > 0:
                     new_bits = bits_k[overlap_bits:]
@@ -108,46 +105,21 @@ def stitch_fragments(
                 
                 full_bits = current_bits + new_bits
                 
-                # Decode and check overlaps
-                turns = decode_turns(full_bits)
-                positions = trace_positions(turns)
-                n_overlaps = count_overlaps(positions)
+                # Trace full positions and count only NEW overlaps introduced by appending fragment i
+                turns_prefix = decode_turns(current_bits)
+                turns_full = decode_turns(full_bits)
                 
-                # Add penalty for overlaps found in the combined chain
-                geo_penalty = n_overlaps * overlap_penalty
+                pos_prefix = trace_positions(turns_prefix) if turns_prefix else np.zeros((0, 2))
+                pos_full = trace_positions(turns_full)
                 
-                # Compute boundary contact energy (cross-fragment MJ contacts)
-                boundary_contact_energy = 0.0
-                if mj_matrix is not None:
-                    # Previous fragment boundary residues (last boundary_band)
-                    prev_start = fragments[i-1].start_res
-                    prev_end = fragments[i-1].end_res
-                    prev_boundary_start = max(prev_start, prev_end - boundary_band)
-                    
-                    # Current fragment boundary residues (first boundary_band)
-                    curr_start = fragments[i].start_res
-                    curr_end = fragments[i].end_res
-                    curr_boundary_end = min(curr_end, curr_start + boundary_band)
-                    
-                    # Compute contacts between boundary residues
-                    n_residues = len(positions)
-                    for res_i in range(prev_boundary_start - prev_start, prev_end - prev_start):
-                        for res_j in range(0, curr_boundary_end - curr_start):
-                            # Map to global residue indices  
-                            global_i = prev_start + res_i
-                            global_j = curr_start + res_j
-                            
-                            # Map to position indices
-                            pos_i = res_i  # within prev fragment
-                            pos_j = prev_end - prev_start + res_j - overlap_bits // 2  # adjusted for overlap
-                            
-                            if pos_i >= 0 and pos_j >= 0 and pos_i < n_residues and pos_j < n_residues:
-                                if pos_j - pos_i >= 3:  # min_sep
-                                    dist = np.linalg.norm(positions[pos_i] - positions[pos_j])
-                                    if dist <= 1.5:  # contact cutoff
-                                        boundary_contact_energy += mj_matrix[global_i, global_j]
+                n_prefix_overlaps = count_overlaps(pos_prefix) if len(pos_prefix) > 0 else 0
+                n_full_overlaps = count_overlaps(pos_full)
+                new_overlaps = max(0, n_full_overlaps - n_prefix_overlaps)
                 
-                cost = dp[i - 1][j] + cand_k.energy + penalty + geo_penalty + boundary_contact_energy
+                # Penalize only the incremental overlaps introduced at this step
+                geo_penalty = new_overlaps * overlap_penalty
+                
+                cost = dp[i - 1][j] + cand_k.energy + penalty + geo_penalty
                 
                 if cost < dp[i][k]:
                     dp[i][k] = cost

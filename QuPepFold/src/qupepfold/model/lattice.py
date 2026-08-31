@@ -26,7 +26,11 @@ TURN_DELTA = {
 }
 
 
-def trace_positions(turns: List[int], start_pos: Tuple[int, int] = (0, 0)) -> np.ndarray:
+def trace_positions(
+    turns: List[int],
+    start_pos: Tuple[int, int] = (0, 0),
+    start_heading: int = 0,
+) -> np.ndarray:
     """Walk turns on 2D lattice and return positions for each residue.
     
     The first residue is at start_pos. Each turn determines the direction
@@ -35,6 +39,7 @@ def trace_positions(turns: List[int], start_pos: Tuple[int, int] = (0, 0)) -> np
     Args:
         turns: List of turn codes (length N-1 for N residues).
         start_pos: Starting position for first residue.
+        start_heading: Initial heading state (0=+x, 1=+y, 2=-x, 3=-y).
         
     Returns:
         Array of shape (N, 2) with (x, y) positions.
@@ -50,7 +55,7 @@ def trace_positions(turns: List[int], start_pos: Tuple[int, int] = (0, 0)) -> np
     positions = np.zeros((n_residues, 2), dtype=np.int32)
     positions[0] = start_pos
     
-    heading = 0  # Start facing +x
+    heading = start_heading % 4
     
     for i, turn in enumerate(turns):
         # Update heading based on turn

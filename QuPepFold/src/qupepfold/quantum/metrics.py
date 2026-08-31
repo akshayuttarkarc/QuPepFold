@@ -34,13 +34,14 @@ class QuantumMetrics:
     
     @property
     def total_shots(self) -> int:
-        """Total shots = shots × 2 × iterations × fragments (SPSA uses 2 evals/iter)."""
-        return self.shots_per_circuit * 2 * self.spsa_iterations * self.n_fragments
+        """Total shots: 2 evals/iter + 1 final eval + 1 final sampling pass (2x shots) per fragment."""
+        shots_per_frag = (2 * self.spsa_iterations + 1) * self.shots_per_circuit + (2 * self.shots_per_circuit)
+        return shots_per_frag * self.n_fragments
     
     @property
     def total_circuit_evaluations(self) -> int:
-        """Total circuit evaluations across all fragments."""
-        return 2 * self.spsa_iterations * self.n_fragments + self.n_fragments  # +1 per fragment for final sampling
+        """Total circuit evaluations across all fragments (2/iter + 1 final + 1 sampling pass)."""
+        return (2 * self.spsa_iterations + 2) * self.n_fragments
     
     def to_dict(self) -> Dict:
         """Convert to dict for JSON serialization."""

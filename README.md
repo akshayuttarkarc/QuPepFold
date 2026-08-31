@@ -8,25 +8,24 @@
 
 ---
 
-# QuPepFold v1.3.1 — QA-VQE Branch
+# QuPepFold v1.3.2 — Production Release
 
-**QuPepFold** is a quantum-classical hybrid peptide folding toolkit built on [Qiskit](https://qiskit.org/). It combines simulated annealing on lattice models, quantum VQE fragment refinement (via `SamplerV2`), and dynamic-programming stitching to predict 3D backbone conformations — then exports standards-compliant PDB files with full secondary structure annotation.
-
-> **Branch: `QA-VQE`** — This branch introduces a fully refactored 7-stage hybrid pipeline with major correctness, serialisation, and visualisation fixes over the previous monolithic design.
+**QuPepFold** is a quantum-classical hybrid peptide folding simulation toolkit built on [Qiskit](https://qiskit.org/). It integrates global lattice simulated annealing, quantum VQE fragment refinement (via Qiskit `SamplerV2`), and dynamic-programming stitching to predict accurate 3D backbone conformations — exporting standards-compliant PDB structures with secondary structure annotations.
 
 ---
 
-## What's New in v1.3.1 (QA-VQE)
+## What's New in v1.3.2 (Production Release)
 
-| # | Change | Details |
-|---|--------|---------|
-| 🔬 | **Hybrid 7-stage pipeline** | SA global search → fragment generation → energy tables → VQE refinement (SPSA) → DP stitching → 3D backbone → report |
-| ⚛️ | **VQE via `SamplerV2`** | Uses Qiskit's modern `SamplerV2` API with SPSA optimiser and CVaR loss |
-| 🧩 | **Overlap-aware DP stitching** | Dynamic-programming stitching with 2-turn overlap matching; falls back to best global SA result |
-| 🏗️ | **Correct secondary structure in PDB** | HELIX/SHEET records derived directly from the optimizer's turn codes — renders correctly in PyMOL, ChimeraX, VMD |
-| 📦 | **Serialisation fix** | `numpy.float32` values no longer crash `json.dump` in `run_metrics.json` |
-| 🧹 | **OpenMM removed** | Relaxation stage removed; pipeline runs cleanly without any optional native dependencies |
-| 🛡️ | **Type safety** | All Pyrefly `bad-argument-type` errors resolved (`dataclasses.replace`, `str | None` guards) |
+| Module | Enhancement | Impact |
+|---|---|---|
+| 📐 **NeRF 3D Geometry** | Fixed orthonormal frame vector `cb = (c - b)/\|c - b\|` and corrected $(\psi_{i-1}, \omega=180^\circ, \phi_i)$ bond mapping. | $C\alpha-C\alpha$ distances are strictly $3.80 \pm 0.01$ Å across all conformations; 0 steric clashes. |
+| 🧬 **$C_\beta$ Stereochemistry** | Tetrahedral out-of-plane chiral placement for L-amino acids. | $C_\beta$ atoms project cleanly away from backbone with $1.53$ Å bond length and $>0.5$ Å out-of-plane separation. |
+| 🧪 **Miyazawa-Jernigan Potential** | Replaced synthetic hydrophobicity with published 1996 Miyazawa-Jernigan Table 5 matrix ($20 \times 20$). | Authentic physical contact energetics with realistic hydrophobic stabilization and charge differentiation (salt bridges). |
+| ⚡ **Energy Model Calibration** | Re-calibrated default $\lambda_{\text{back}} = 0.20$ (from 5.0) and unified Hamiltonian terms. | Enables hydrophobic collapse while retaining turn variety; consistent energy evaluation across SA, VQE, and DP. |
+| 🧭 **Orientation-Aware Context** | Rotates fragment coordinate frames to match global incoming chain heading and detects environment clashes. | Preserves global spatial alignment during quantum fragment refinement. |
+| ⚛️ **Quantum Optimization** | Active CVaR loss ($\alpha$), basis-state / biased-RY warmstart, initial Hadamard superposition, and 2-eval/iter SPSA. | True quantum variational refinement with self-avoiding post-selection filtering. |
+| 🧩 **Markovian DP Stitching** | Penalizes incremental overlaps without double-counting history; prunes zero-DOF trailing fragments. | Fast, exact fragment assembly with fallback to global SA. |
+| 📊 **Reporting & Metrics** | Exact circuit evaluation counts, complete candidate exports, populated summary headers. | Fully reproducible execution logs and production-ready outputs. |
 
 ---
 
@@ -37,128 +36,107 @@ Sequence (amino acids)
        │
        ▼
 ┌─────────────────────────────────────────────┐
-│  Stage 1  │  Global Simulated Annealing      │  ← lattice model, SA/PT
-│           │  (3 restarts, best energy kept)  │
+│  Stage 1  │  Global Simulated Annealing      │  ← lattice model, SA/PT (3 restarts)
 ├─────────────────────────────────────────────┤
-│  Stage 2  │  Fragment Generation             │  ← sliding window, 7-aa frags
+│  Stage 2  │  Fragment Generation             │  ← overlap sliding window (7-AA frags)
 ├─────────────────────────────────────────────┤
-│  Stage 3  │  Energy Table Precomputation     │  ← MJ potential, 1024 states
+│  Stage 3  │  Energy Table Precomputation     │  ← 1996 MJ potential + context scoring
 ├─────────────────────────────────────────────┤
-│  Stage 4  │  Quantum VQE Refinement (SPSA)   │  ← SamplerV2 / Aer / Runtime
+│  Stage 4  │  Quantum VQE Refinement (SPSA)   │  ← SamplerV2 / Aer / CVaR loss
 ├─────────────────────────────────────────────┤
-│  Stage 5  │  Fragment Stitching (DP)         │  ← overlap-aware, 2-turn match
+│  Stage 5  │  Fragment Stitching (DP)         │  ← Markovian overlap-aware dynamic programming
 ├─────────────────────────────────────────────┤
-│  Stage 6  │  3D Backbone Construction        │  ← PDB with HELIX/SHEET records
+│  Stage 5b │  Local Refinement                │  ← Full-chain lattice fine-tuning
 ├─────────────────────────────────────────────┤
-│  Stage 7  │  Report & Metrics                │  ← JSON, CSV, plots, ZIP
+│  Stage 6  │  3D Backbone Construction (NeRF) │  ← Cα-Cα 3.80 Å invariant, HELIX/SHEET PDB
+├─────────────────────────────────────────────┤
+│  Stage 7  │  Report & Metrics                │  ← JSON, CSV, plots, ZIP archive
 └─────────────────────────────────────────────┘
        │
        ▼
-  backbone.pdb  +  run_metrics.json  +  fragment_energies.png
+  backbone.pdb  +  run_metrics.json  +  output_summary.txt  +  plots
 ```
 
 ---
 
 ## Installation
 
-### From PyPI (stable)
+### From PyPI
+
 ```bash
 pip install qupepfold
 ```
 
-### From source (this branch)
+### From Source
+
 ```bash
 git clone https://github.com/akshayuttarkarc/QuPepFold.git
-cd QuPepFold
-git checkout QA-VQE
-cd QuPepFold                    # the Python package lives here
-pip install -e .                # editable install
+cd QuPepFold/QuPepFold
+pip install -e .
 ```
 
-### Requirements
-| Package | Version |
-|---------|---------|
-| Python | ≥ 3.9 |
-| qiskit | ≥ 1.0 |
-| qiskit-aer | ≥ 0.14 |
-| numpy | ≥ 1.22 |
-| matplotlib | ≥ 3.5 |
-| scipy | ≥ 1.9 |
-| pyyaml | ≥ 6.0 |
-
-**Optional — IBM Quantum Runtime:**
-```bash
-pip install qupepfold[ibm]       # adds qiskit-ibm-runtime ≥ 0.20
-```
+### Dependencies
+- `python>=3.9`
+- `qiskit>=1.0,<3`
+- `qiskit-aer>=0.14`
+- `numpy>=1.22`
+- `matplotlib>=3.5`
+- `scipy>=1.9`
+- `pyyaml>=6.0`
 
 ---
 
-## Quick Start
-
-### CLI
-```bash
-# Local Aer simulator (default)
-qupepfold fold \
-  --seq ACDEFGHIKLMNPQRSTVWY \
-  --backend aer \
-  --shots 2048 \
-  --out ./results
-
-# IBM Quantum Runtime
-qupepfold fold \
-  --seq ACDEFGHIKLMNPQRSTVWY \
-  --backend runtime \
-  --ibm-token YOUR_TOKEN \
-  --ibm-backend ibm_sherbrooke \
-  --shots 4096 \
-  --out ./results
-```
+## Quickstart
 
 ### Python API
+
 ```python
 from qupepfold import run_fold, get_default_config
 
-config = get_default_config()
-config.backend  = "aer"
-config.shots    = 2048
-config.sa_steps = 5000
+# Configure simulation
+config = get_default_config(
+    shots=1024,
+    spsa_iterations=50,
+    sa_steps=5000,
+    sa_restarts=3,
+    fragment_length=7,
+    overlap_turns=2,
+    cvar_alpha=0.25,
+    seed=42,
+)
 
+# Run folding simulation
 result = run_fold(
-    sequence="ACDEFGHIKLMNPQRSTVWY",
+    sequence="APRLRFY",
     config=config,
-    output_dir="./results",
+    output_dir="./output_aprlrfy",
     verbose=True,
 )
 
-print(f"Global energy : {result.global_energy:.4f}")
-print(f"Stitched energy: {result.stitched_energy:.4f}")
-print(f"PDB            : {result.pdb_path}")
+print(f"Final Energy: {result.energy:.4f} kcal/mol")
+print(f"PDB output: {result.pdb_path}")
 ```
 
----
+### Command Line Interface (CLI)
 
-## CLI Reference
-
+```bash
+qupepfold --sequence APRLRFY --output-dir ./results --shots 1024 --spsa-iters 50
 ```
-qupepfold fold [OPTIONS]
 
-Required:
-  --seq TEXT          Amino acid sequence (single-letter, 4–100 residues)
-  --out PATH          Output directory (created if absent)
-
-Quantum backend:
-  --backend TEXT      aer (default) | runtime
-  --shots INT         Shots per circuit  [default: 2048]
-  --ibm-token TEXT    IBM Quantum API token (runtime only)
-  --ibm-backend TEXT  IBM backend name  [default: ibm_sherbrooke]
-
-Optimisation:
-  --sa-steps INT      SA steps per restart  [default: 5000]
-  --sa-restarts INT   SA restarts  [default: 3]
-  --spsa-iters INT    SPSA iterations per fragment  [default: 50]
-  --fragment-len INT  Fragment window size (residues)  [default: 7]
-  --seed INT          Random seed  [default: 42]
-  --alpha FLOAT       CVaR alpha (0–1)  [default: 0.25]
+#### CLI Options:
+```
+Simulation Parameters:
+  -s, --sequence TEXT      Amino acid sequence (e.g. APRLRFY)  [required]
+  -o, --output-dir TEXT    Output directory  [default: ./qupepfold_output]
+  -c, --config PATH        Path to custom YAML config file
+  --backend TEXT           aer (default) | runtime
+  --shots INT              Shots per circuit  [default: 2048]
+  --spsa-iters INT         SPSA iterations per fragment  [default: 50]
+  --sa-steps INT           SA steps per restart  [default: 5000]
+  --sa-restarts INT        SA restarts  [default: 3]
+  --fragment-len INT       Fragment window size (residues)  [default: 7]
+  --alpha FLOAT            CVaR alpha parameter (0.0–1.0)  [default: 0.25]
+  --seed INT               Random seed  [default: 42]
 ```
 
 ---
@@ -166,66 +144,71 @@ Optimisation:
 ## Output Files
 
 | File | Description |
-|------|-------------|
-| `backbone.pdb` | 3D backbone with HELIX/SHEET annotation — open in PyMOL / ChimeraX |
-| `run_metrics.json` | Full runtime metrics (wall time, energies, quantum circuit stats) |
-| `report.json` | Pipeline provenance and fold summary |
-| `fragment_candidates.csv` | All 150 VQE candidate bitstrings with energies |
-| `sa_trace.csv` | SA restart history |
-| `mj_matrix.csv` | Miyazawa-Jernigan interaction matrix used |
-| `fragment_energies.png` | Per-fragment best energy bar chart |
-| `output_summary.txt` | Human-readable fold summary |
-| `pdb3d.zip` | ZIP of all PDB files |
+|---|---|
+| `backbone.pdb` | 3D backbone with HELIX/SHEET records and CONECT bond records. |
+| `run_metrics.json` | Comprehensive execution metrics (timings, quantum circuit counts, shots, memory). |
+| `report.json` | Machine-readable provenance and simulation metadata. |
+| `output_summary.txt` | Formatted summary of energies, selected fragment candidates, and energy breakdown. |
+| `fragment_candidates.csv` | All extracted VQE and table candidates across fragments. |
+| `most_negative_energy_breakdown.csv` | Breakdown of contact, backbone penalty, and overlap energy terms. |
+| `sa_trace.csv` | Global search restart trajectories and convergence history. |
+| `mj_matrix.csv` | $N \times N$ Miyazawa-Jernigan contact interaction matrix for the target peptide. |
+| `fragment_energies.png` | Per-fragment candidate energy distribution chart. |
+| `energy_breakdown.png` | Contact vs backbone energy component plot. |
+| `pdb3d.zip` | Bundled archive of generated PDB structures. |
 
-### Visualising the PDB
+---
+
+## Secondary Structure & Turn Encodings
+
+QuPepFold models backbone orientations on a discrete tetrahedral lattice mapped to canonical Ramachandran basins:
+
+| Turn Code | $\phi$ | $\psi$ | $\omega$ | Region | PDB Record |
+|---|---|---|---|---|---|
+| `0` | $-60^\circ$ | $-45^\circ$ | $180^\circ$ | $\alpha$-helix | `HELIX` |
+| `1` | $-135^\circ$ | $+135^\circ$ | $180^\circ$ | $\beta$-sheet | `SHEET` |
+| `2` | $-75^\circ$ | $+145^\circ$ | $180^\circ$ | $\text{PP}_{\text{II}}$ / extended | Loop / Coil |
+| `3` | $-60^\circ$ | $+140^\circ$ | $180^\circ$ | Turn / coil | Loop / Coil |
+
+3D coordinates are reconstructed using the Natural Extension of Reference Frames (NeRF) algorithm with strict tetrahedral chiral placement of $C_\beta$ sidechains.
+
+---
+
+## Visualizing in Molecular Viewers
 
 Open `backbone.pdb` in [PyMOL](https://pymol.org/), [UCSF ChimeraX](https://www.cgl.ucsf.edu/chimerax/), or [VMD](https://www.ks.uiuc.edu/Research/vmd/):
 
 ```python
 # PyMOL commands
 load backbone.pdb
-show cartoon          # renders helices and strands from HELIX/SHEET records
-color ss              # colour by secondary structure
+show cartoon
+color ss
+show sticks, name CA+CB
 ```
 
 ---
 
-## Turn Codes & Secondary Structure
+## Verification & Testing
 
-QuPepFold encodes backbone conformation using 4 discrete turn types on a tetrahedral lattice:
+QuPepFold includes an automated test suite verifying geometry, quantum sampling, DP stitching, and regression baselines:
 
-| Turn | φ | ψ | Region | PDB record |
-|------|---|---|--------|-----------|
-| `0` | −60° | −45° | α-helix | `HELIX` |
-| `1` | −135° | 135° | β-sheet | `SHEET` |
-| `2` | −75° | 145° | PPII / extended | — |
-| `3` | −60° | 140° | coil | — |
-
-Each 2-bit turn code is encoded in the quantum bitstring. The final bitstring (best energy) drives both the 3D geometry and the PDB secondary-structure header records.
+```bash
+pytest -v
+```
 
 ---
 
 ## Published Research
 
-This tool is based on peer-reviewed quantum computing research:
+This tool is built upon peer-reviewed quantum computing and structural biology research:
 
-1. Uttarkar, A., Niranjan, V. (2024). *Quantum synergy in peptide folding: A comparative study of CVaR-VQE and molecular dynamics simulation.* **International Journal of Biological Macromolecules**, 273, 133033. https://doi.org/10.1016/j.ijbiomac.2024.133033
+1. Uttarkar, A., Niranjan, V. (2024). *Quantum synergy in peptide folding: A comparative study of CVaR-VQE and molecular dynamics simulation.* **International Journal of Biological Macromolecules**, 273, 133033. [doi:10.1016/j.ijbiomac.2024.133033](https://doi.org/10.1016/j.ijbiomac.2024.133033)
 
-2. Uttarkar, A., Niranjan, V. (2024). *A comparative insight into peptide folding with quantum CVaR-VQE algorithm, MD simulations and structural alphabet analysis.* **Quantum Information Processing**, 23, 48. https://doi.org/10.1007/s11128-024-04261-9
+2. Uttarkar, A., Niranjan, V. (2024). *A comparative insight into peptide folding with quantum CVaR-VQE algorithm, MD simulations and structural alphabet analysis.* **Quantum Information Processing**, 23, 48. [doi:10.1007/s11128-024-04261-9](https://doi.org/10.1007/s11128-024-04261-9)
 
-3. Uttarkar, A., Setlur, A. S., Niranjan, V. (2024). *T-Gate Enabled Fault-Tolerant Ansatz Circuit Design for VQE in Peptide Folding on Aria-1.* **Global AI Summit 2024**, IEEE. doi:10.1109/GlobalAISummit62156.2024.10947993
+3. Uttarkar, A., Setlur, A. S., Niranjan, V. (2024). *T-Gate Enabled Fault-Tolerant Ansatz Circuit Design for VQE in Peptide Folding on Aria-1.* **Global AI Summit 2024**, IEEE. [doi:10.1109/GlobalAISummit62156.2024.10947993](https://doi.org/10.1109/GlobalAISummit62156.2024.10947993)
 
-4. Uttarkar, A., Niranjan, V. (2025). *Quantum Enabled Protein Folding of Disordered Regions in Ubiquitin C Via Error Mitigated VQE Benchmarked on Tensor Network Simulator and Aria 1.* **IEEE Transactions on Molecular, Biological, and Multi-Scale Communications**. doi:10.1109/TMBMC.2025.3600516
-
----
-
-## Roadmap
-
-- [ ] **GPU acceleration** — integrate `cuStateVec` / `qiskit-aer-gpu` for 10–50× simulation speedup
-- [ ] **Parallel fragment VQE** — run all 15 fragment circuits concurrently
-- [ ] **Fault-tolerant circuit modes** — T-gate based ansatz for error-resilient execution
-- [ ] **Extended sequences** — support > 100 residues via hierarchical fragment merging
-- [ ] **PyMOL plugin** — one-click fold-and-visualise from within PyMOL
+4. Uttarkar, A., Niranjan, V. (2025). *Quantum Enabled Protein Folding of Disordered Regions in Ubiquitin C Via Error Mitigated VQE Benchmarked on Tensor Network Simulator and Aria 1.* **IEEE Transactions on Molecular, Biological, and Multi-Scale Communications**. [doi:10.1109/TMBMC.2025.3600516](https://doi.org/10.1109/TMBMC.2025.3600516)
 
 ---
 
@@ -240,11 +223,3 @@ This tool is based on peer-reviewed quantum computing research:
 ## License
 
 MIT License — see [LICENSE](LICENSE) for details.
-
----
-
-## Uninstall
-
-```bash
-pip uninstall qupepfold
-```

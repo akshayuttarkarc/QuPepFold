@@ -69,7 +69,7 @@ def spsa_optimize(
         # Random perturbation direction (Bernoulli ±1)
         delta = rng.choice([-1.0, 1.0], size=n_params)
         
-        # Perturbed evaluations
+        # Perturbed evaluations (standard 2 evaluations per SPSA iteration)
         x_plus = x + c_k * delta
         x_minus = x - c_k * delta
         
@@ -79,20 +79,30 @@ def spsa_optimize(
         # Gradient estimate
         g_hat = (cost_plus - cost_minus) / (2 * c_k * delta)
         
-        # Update
+        # Update parameters
         x = x - a_k * g_hat
         
-        # Track best
-        current_cost = cost_fn(x)
-        cost_history.append(current_cost)
+        # Track iteration cost without redundant extra evaluation
+        iter_cost = min(cost_plus, cost_minus)
+        cost_history.append(iter_cost)
         
-        if current_cost < best_cost:
-            best_cost = current_cost
-            best_x = x.copy()
+        if cost_plus < best_cost:
+            best_cost = cost_plus
+            best_x = x_plus.copy()
+        if cost_minus < best_cost:
+            best_cost = cost_minus
+            best_x = x_minus.copy()
         
         # Callback
         if callback is not None:
-            callback(k, x, current_cost)
+            callback(k, x, iter_cost)
+            
+    # Final evaluation at converged parameters
+    final_cost = cost_fn(x)
+    cost_history.append(final_cost)
+    if final_cost <= best_cost:
+        best_cost = final_cost
+        best_x = x.copy()
     
     return best_x, best_cost, cost_history
 

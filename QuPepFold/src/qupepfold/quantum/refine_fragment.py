@@ -93,41 +93,48 @@ def refine_fragment(
     energy_table_to_use = context_table
     n_qubits = fragment.n_bits
     
+    from .error_mitigation import PostSelectionFilter
+    from qiskit import QuantumCircuit
+    
     # Build ansatz
-    with_warmstart = warmstart_bits is not None
+    with_warmstart = bool(warmstart_bits)
     
     # Check if warm-start is valid in new table
-    if with_warmstart:
+    if with_warmstart and warmstart_bits:
         ws_energy = energy_table_to_use.energy_of_bitstring(warmstart_bits)
         if ws_energy == np.inf:
             if verbose:
-                # This can happen if warm-start bits don't satisfy local constraints? 
-                # But typically SA result is valid.
-                print(f"  ⚠ Warm-start bitstring is invalid in context table! This shouldn't happen.")
+                print(f"  ⚠ Warm-start bitstring is invalid in context table! Disabling warm-start.")
+            with_warmstart = False
+            warmstart_bits = None
     
-    # Standard ansatz construction
-    circuit = build_fragment_ansatz(
-        n_qubits=n_qubits,
-        depth=config.ansatz_depth,
-        with_warmstart=True, # Always use custom warmstart logic below
-        warmstart_bits=None, # constructed manually
-    )
-    
-    # If using warm-start, apply biased initialization
-    if with_warmstart and config.warmstart_mode == "biased_ry":
-        from qiskit import QuantumCircuit
-        qc = QuantumCircuit(n_qubits)
-        biased_ry_init(qc, warmstart_bits, config.warmstart_bias)
-        
-        # Append mixing layers (skipping H)
+    # Construct circuit with appropriate initialization
+    if not with_warmstart or not warmstart_bits:
+        # No warm-start: build ansatz with initial Hadamard superposition layer
         circuit = build_fragment_ansatz(
             n_qubits=n_qubits,
             depth=config.ansatz_depth,
-            with_warmstart=True,
-            warmstart_bits=None,
+            with_warmstart=False,
         )
-        combined = qc.compose(circuit)
-        circuit = combined
+    elif config.warmstart_mode == "basis":
+        # Basis state initialization (|warmstart_bits>)
+        qc = QuantumCircuit(n_qubits)
+        basis_state_init(qc, warmstart_bits)
+        ansatz_body = build_fragment_ansatz(
+            n_qubits=n_qubits,
+            depth=config.ansatz_depth,
+            with_warmstart=True,
+        )
+        circuit = qc.compose(ansatz_body)
+    else:  # biased_ry mode
+        qc = QuantumCircuit(n_qubits)
+        biased_ry_init(qc, warmstart_bits, config.warmstart_bias)
+        ansatz_body = build_fragment_ansatz(
+            n_qubits=n_qubits,
+            depth=config.ansatz_depth,
+            with_warmstart=True,
+        )
+        circuit = qc.compose(ansatz_body)
     
     # Initial parameters
     n_params = circuit.num_parameters
@@ -139,7 +146,7 @@ def refine_fragment(
     
     # Define cost function with optional verbose output
     def cost_fn(params: np.ndarray) -> float:
-        """Cost function: expected energy from sampler using CONTEXT table."""
+        """Cost function: CVaR or expected energy from sampler using CONTEXT table."""
         iteration_count[0] += 1
         
         # Run sampler
@@ -150,8 +157,11 @@ def refine_fragment(
         )
         prob_dict = prob_dicts[0]
         
-        # Compute expected energy with CONTEXT table
-        energy = expected_energy(prob_dict, energy_table_to_use)
+        # Compute energy with CONTEXT table (CVaR if alpha < 1.0, otherwise expected value)
+        if config.cvar_alpha < 1.0:
+            energy = cvar_energy(prob_dict, energy_table_to_use, alpha=config.cvar_alpha)
+        else:
+            energy = expected_energy(prob_dict, energy_table_to_use)
         
         # Progress update
         if verbose and iteration_count[0] % 10 == 0:
@@ -159,7 +169,7 @@ def refine_fragment(
             pct = 100 * iter_num / config.spsa_iterations
             print(f"\r    SPSA iteration {iter_num}/{config.spsa_iterations} ({pct:.0f}%) | E={energy:.2f}   ", end="", flush=True)
         
-        return energy
+        return float(energy)
     
     # Run optimization with the configured optimizer
     optimizer_name = getattr(config, 'optimizer', 'spsa')
@@ -184,9 +194,13 @@ def refine_fragment(
         shots=config.shots * 2,
     )[0]
     
+    # Apply post-selection filter to discard self-intersections
+    post_filter = PostSelectionFilter(fragment=fragment, warmstart_bits=warmstart_bits)
+    mitigated_probs = post_filter(final_probs)
+    
     # Extract candidates using CONTEXT table
     top_by_prob = top_k_candidates(
-        final_probs,
+        mitigated_probs,
         energy_table_to_use,
         k=config.top_k_candidates,
         by="probability",
@@ -199,19 +213,19 @@ def refine_fragment(
     unique_bits = set()
     candidates = []
     
-    # CRITICAL: Always include the warm-start bitstring
+    # Always include the warm-start bitstring if available
     if with_warmstart and warmstart_bits:
         ws_energy = energy_table_to_use.energy_of_bitstring(warmstart_bits)
         if ws_energy < 1e9:
             candidates.append(FragmentCandidate(
                 bits=warmstart_bits,
                 energy=ws_energy,
-                probability=1.0,  # Artificial high prob
+                probability=1.0,
                 meta={"source": "warm_start_sa"}
             ))
             unique_bits.add(warmstart_bits)
     
-    # First add VQE-sampled candidates
+    # Add VQE-sampled candidates
     for bits, energy, prob in sorted(top_by_prob, key=lambda x: x[1]):
         if bits not in unique_bits:
             unique_bits.add(bits)
@@ -225,12 +239,13 @@ def refine_fragment(
                     "shots": config.shots,
                     "optimizer": getattr(config, 'optimizer', 'spsa'),
                     "n_iterations": config.spsa_iterations,
+                    "cvar_alpha": config.cvar_alpha,
                     "final_cost": best_cost,
-                    "convergence_trace": cost_history,  # persist full trace
+                    "convergence_trace": cost_history,
                 },
             ))
     
-    # Then add table-best candidates
+    # Add table-best candidates
     for cand in table_best:
         if cand.bits not in unique_bits:
             unique_bits.add(cand.bits)

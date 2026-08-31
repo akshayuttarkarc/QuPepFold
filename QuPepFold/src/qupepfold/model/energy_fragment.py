@@ -274,10 +274,13 @@ def compute_single_energy(
     # Backbone penalty
     e_back = compute_backbone_penalty(turns, lam_back)
     
-    # Geometric constraints
+    # Geometric constraints (apply with contact pairs to match build_energy_table)
     e_geo = 0.0
-    if include_geometric_constraints:
-        e_geo = compute_geometric_constraints(turns, n_residues, lam_dis, lam_loc)
+    if include_geometric_constraints and contact_pairs:
+        e_geo = compute_geometric_constraints(
+            turns, n_residues, lam_dis, lam_loc,
+            positions=positions, contact_pairs=contact_pairs
+        )
     
     return e_overlap + e_contact + e_back + e_geo
 
@@ -287,6 +290,7 @@ def compute_chain_energy(
     sequence: str,
     mj_matrix: np.ndarray,
     config: FoldConfig,
+    include_geometric_constraints: bool = True,
 ) -> float:
     """Compute energy for a full chain bitstring.
     
@@ -298,6 +302,7 @@ def compute_chain_energy(
         sequence: Full amino acid sequence.
         mj_matrix: Full MJ matrix.
         config: FoldConfig.
+        include_geometric_constraints: Whether to include lamDis/lamLoc if enabled.
         
     Returns:
         Total energy value.
@@ -314,6 +319,8 @@ def compute_chain_energy(
     
     # Get penalty weights from config
     lam_back = getattr(config, 'lam_back', DEFAULT_LAM_BACK)
+    lam_dis = getattr(config, 'lam_dis', DEFAULT_LAM_DIS)
+    lam_loc = getattr(config, 'lam_loc', DEFAULT_LAM_LOC)
     
     # Overlap penalty - for the FULL chain
     n_overlaps = count_overlaps(positions)
@@ -330,7 +337,16 @@ def compute_chain_energy(
     # Backbone penalty - adjacent equal turns
     e_back = compute_backbone_penalty(turns, lam_back)
     
-    return e_overlap + e_contact + e_back
+    # Geometric constraints if enabled
+    e_geo = 0.0
+    if include_geometric_constraints and (lam_dis > 0 or lam_loc > 0) and contact_pairs:
+        e_geo = compute_geometric_constraints(
+            turns, n_residues, lam_dis, lam_loc,
+            positions=positions, contact_pairs=contact_pairs
+        )
+    
+    return e_overlap + e_contact + e_back + e_geo
+
 
 def compute_context_energy(
     fragment_turns: List[int],
@@ -342,59 +358,66 @@ def compute_context_energy(
 ) -> float:
     """Compute interaction energy between fragment and fixed global environment.
     
-    This anchors the fragment optimization to the global structure (QA/SA solution).
+    Correctly rotates the local fragment trace to match the incoming heading
+    of the global chain, checks for clashes with the environment, and scores
+    contacts with non-fragment residues.
     
     Args:
         fragment_turns: List of turns for the candidate fragment.
         global_positions: Fixed positions of the ENTIRE chain (from SA/QA).
         fragment_start_res: Global index of the fragment's first residue.
         mj_matrix: Interaction matrix.
+        contact_min_sep: Minimum sequence separation for contacts.
+        contact_cutoff: Maximum distance for contacts.
         
     Returns:
         Interaction energy (negative is favorable).
     """
-    if len(global_positions) == 0:
+    if len(global_positions) == 0 or fragment_start_res >= len(global_positions):
         return 0.0
 
-    # 1. Trace local positions (starts at 0,0,0)
-    local_pos = trace_positions(turns=fragment_turns) 
+    # 1. Determine incoming heading from previous residues in the global chain
+    start_heading = 0
+    if fragment_start_res > 0:
+        delta = tuple(global_positions[fragment_start_res] - global_positions[fragment_start_res - 1])
+        heading_map = {(1, 0): 0, (0, 1): 1, (-1, 0): 2, (0, -1): 3}
+        start_heading = heading_map.get(delta, 0)
+
+    # 2. Trace local positions directly in global orientation starting at global position
+    aligned_pos = trace_positions(
+        turns=fragment_turns,
+        start_pos=tuple(global_positions[fragment_start_res]),
+        start_heading=start_heading,
+    )
     
-    # 2. Align to global frame
-    # We assume the start residue position is fixed to the global start residue
-    # because we fix the left boundary (overlap) to match the global structure.
-    if fragment_start_res >= len(global_positions):
-        return 0.0
-        
-    offset = global_positions[fragment_start_res]
-    aligned_pos = local_pos + offset
-    
-    # 3. Compute interactions with ENVIRONMENT
-    # Environment = all residues NOT in this fragment
-    n_frag = len(local_pos)
+    # 3. Environment overlap check & interaction scoring
+    n_frag = len(aligned_pos)
     frag_end_res = fragment_start_res + n_frag
     n_global = len(global_positions)
+    frag_indices = set(range(fragment_start_res, min(frag_end_res, n_global)))
+    
+    # Check for collisions with environment residues
+    env_positions = [tuple(global_positions[j]) for j in range(n_global) if j not in frag_indices]
+    env_pos_set = set(env_positions)
+    for pos in aligned_pos:
+        if tuple(pos) in env_pos_set:
+            return 1000.0  # Forbidden collision with fixed environment
     
     E_context = 0.0
-    
-    # Optimization: Pre-calculate indices to avoid repeated checks
-    frag_indices = set(range(fragment_start_res, frag_end_res))
-    
     for i_local, pos_i in enumerate(aligned_pos):
         i_global = fragment_start_res + i_local
+        if i_global >= len(mj_matrix):
+            continue
         
-        # Check against all global residues j
+        # Check against all environment residues j
         for j in range(n_global):
-            # Skip if j is part of the fragment itself
-            if j in frag_indices:
+            if j in frag_indices or j >= len(mj_matrix):
                 continue
-                
-            # Skip neighbors in sequence (min_sep)
             if abs(i_global - j) < contact_min_sep:
                 continue
             
-            # Check distance
             dist = np.linalg.norm(pos_i - global_positions[j])
             if dist <= contact_cutoff:
                 E_context += mj_matrix[i_global, j]
                 
-    return E_context
+    return float(E_context)

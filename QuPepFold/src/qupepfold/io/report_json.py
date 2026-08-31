@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ..types import FoldResult, FoldConfig
+from .. import __version__
 
 
 def build_report(
@@ -26,7 +27,7 @@ def build_report(
     report = {
         "metadata": {
             "timestamp": datetime.now().isoformat(),
-            "package_version": "1.0.0",
+            "package_version": __version__,
         },
         "input": {
             "sequence": result.sequence,

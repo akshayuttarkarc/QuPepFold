@@ -7,10 +7,17 @@ Includes:
 """
 
 import os
+import tempfile
 from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 try:
+    if not os.environ.get("MPLCONFIGDIR"):
+        os.environ["MPLCONFIGDIR"] = os.path.join(tempfile.gettempdir(), "qupepfold-matplotlib")
+    import matplotlib
+
+    if not os.environ.get("MPLBACKEND"):
+        matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 except ImportError as e:
     raise ImportError("matplotlib is required. Install with: pip install matplotlib") from e
