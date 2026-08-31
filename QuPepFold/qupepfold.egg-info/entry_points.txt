@@ -1,0 +1,2 @@
+[console_scripts]
+qupepfold = qupepfold.cli:main
